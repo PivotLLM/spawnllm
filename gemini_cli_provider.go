@@ -387,3 +387,7 @@ type geminiCliTokens struct {
 	Thoughts   int `json:"thoughts"`
 	Tool       int `json:"tool"`
 }
+
+// Workspace returns the working directory the CLI runs in. Exposed so hosts can
+// verify provider construction.
+func (p *GeminiCliProvider) Workspace() string { return p.workspace }

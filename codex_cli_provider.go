@@ -378,3 +378,7 @@ func truncateString(s string, n int) string {
 	}
 	return s[:n]
 }
+
+// Workspace returns the working directory the CLI runs in. Exposed so hosts can
+// verify provider construction.
+func (p *CodexCliProvider) Workspace() string { return p.workspace }

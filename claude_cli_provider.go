@@ -417,3 +417,7 @@ type claudeCliUsageInfo struct {
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 }
+
+// Workspace returns the working directory the CLI runs in. Exposed so hosts can
+// verify provider construction.
+func (p *ClaudeCliProvider) Workspace() string { return p.workspace }

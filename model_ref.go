@@ -70,3 +70,9 @@ func splitModelKey(key string) (provider, model string) {
 	}
 	return key, ""
 }
+
+// SplitModelKey is the inverse of ModelKey: it splits a "provider/model" key
+// back into its parts. Exported for hosts that key state by ModelKey.
+func SplitModelKey(key string) (provider, model string) {
+	return splitModelKey(key)
+}
