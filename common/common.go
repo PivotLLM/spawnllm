@@ -41,6 +41,17 @@ type (
 
 const DefaultRequestTimeout = 120 * time.Second
 
+// TextDeltaOption is the options-map key under which a caller may supply a
+// TextDeltaFunc to opt into token streaming (SSE). When absent (or nil),
+// providers keep their single-shot request/response behavior unchanged.
+const TextDeltaOption = "on_text_delta"
+
+// TextDeltaFunc is invoked with each non-empty assistant text delta as it
+// arrives over the stream. It is called synchronously from the provider's
+// Chat goroutine in arrival order; implementations must not block for long.
+// Only content deltas are delivered — reasoning/thinking deltas are not.
+type TextDeltaFunc = func(delta string)
+
 // NewHTTPClient creates an *http.Client with an optional proxy and the default timeout.
 func NewHTTPClient(proxy string) *http.Client {
 	client := &http.Client{

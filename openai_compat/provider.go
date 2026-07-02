@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -246,6 +247,18 @@ func (p *Provider) Chat(
 		"messages": serializeMessages(messages, p.strictCompat),
 	}
 
+	// Streaming is opt-in: only when the caller supplied a non-nil delta
+	// callback. Absent it, every field below and the response handling stay on
+	// the unchanged single-shot path.
+	streamCB, streaming := options[common.TextDeltaOption].(common.TextDeltaFunc)
+	streaming = streaming && streamCB != nil
+	if streaming {
+		requestBody["stream"] = true
+		// include_usage makes the final SSE chunk carry the usage object, which
+		// the non-streaming shape (and DispatchStatus) needs.
+		requestBody["stream_options"] = map[string]any{"include_usage": true}
+	}
+
 	if len(tools) > 0 {
 		requestBody["tools"] = tools
 		requestBody["tool_choice"] = "auto"
@@ -386,8 +399,9 @@ func (p *Provider) Chat(
 	// When response logging is enabled, slurp the full body up front so we can
 	// append it to the diagnostic file before handing it off to the existing
 	// error/parse helpers. The body is then replaced with an in-memory reader
-	// so downstream code is unchanged.
-	if p.responseLogFile != "" {
+	// so downstream code is unchanged. Skipped when streaming: the SSE path
+	// consumes the body incrementally and logs the reconstructed body itself.
+	if p.responseLogFile != "" && !streaming {
 		raw, readErr := io.ReadAll(resp.Body)
 		if readErr != nil {
 			return httpErrorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, int64(len(raw))),
@@ -400,6 +414,10 @@ func (p *Provider) Chat(
 	if resp.StatusCode != http.StatusOK {
 		respErr := common.HandleErrorResponse(resp, p.apiBase)
 		return httpErrorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, 0), respErr
+	}
+
+	if streaming {
+		return p.readStream(resp, streamCB, tools, model, corrID, bytesSent, start)
 	}
 
 	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools))
@@ -417,6 +435,65 @@ func (p *Provider) Chat(
 		}
 	}
 	return out, nil
+}
+
+// readStream consumes an SSE chat/completions response, firing cb for each
+// content delta, then reconstructs the equivalent non-streaming body and runs
+// it through the SAME ParseResponse used by the single-shot path so all
+// post-processing is shared. Status fields are set exactly as the single-shot
+// path sets them. An in-band error chunk is mapped to the HTTP-error status
+// shape (partial content may already have been emitted via cb).
+func (p *Provider) readStream(
+	resp *http.Response,
+	cb common.TextDeltaFunc,
+	tools []ToolDefinition,
+	model, corrID string,
+	bytesSent int64,
+	start time.Time,
+) (*LLMResponse, error) {
+	counter := &countingReader{r: resp.Body}
+	out, body, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools))
+	durationMs := time.Since(start).Milliseconds()
+
+	if p.responseLogFile != "" && len(body) > 0 {
+		p.appendResponseLog(corrID, model, resp.StatusCode, durationMs, body)
+	}
+
+	if err != nil {
+		var streamErr *common.StreamChatError
+		if errors.As(err, &streamErr) {
+			return httpErrorStatus(model, "error", durationMs, bytesSent, counter.n),
+				&common.HTTPStatusError{
+					StatusCode:  http.StatusOK,
+					APIBase:     p.apiBase,
+					BodyPreview: streamErr.Message,
+				}
+		}
+		return httpErrorStatus(model, "parse_error", durationMs, bytesSent, counter.n), err
+	}
+
+	if out.Status != nil {
+		out.Status.Success = true
+		out.Status.DurationMs = durationMs
+		out.Status.BytesSent = bytesSent
+		out.Status.BytesReceived = counter.n
+		if out.Status.Model == "" {
+			out.Status.Model = model
+		}
+	}
+	return out, nil
+}
+
+// countingReader tracks bytes read so streaming can report BytesReceived.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // httpErrorStatus builds an LLMResponse whose Status records a failed HTTP dispatch.

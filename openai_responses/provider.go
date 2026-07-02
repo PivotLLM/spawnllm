@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -160,6 +161,15 @@ func (p *Provider) Chat(
 		requestBody["instructions"] = instructions
 	}
 
+	// Streaming is opt-in: only when the caller supplied a non-nil delta
+	// callback. Absent it, the request flag and the response handling below stay
+	// on the unchanged single-shot path.
+	streamCB, streaming := options[common.TextDeltaOption].(common.TextDeltaFunc)
+	streaming = streaming && streamCB != nil
+	if streaming {
+		requestBody["stream"] = true
+	}
+
 	if len(tools) > 0 {
 		requestBody["tools"] = responsesTools(tools)
 		requestBody["tool_choice"] = "auto"
@@ -245,6 +255,13 @@ func (p *Provider) Chat(
 	}
 	defer resp.Body.Close()
 
+	// Streaming reads the body incrementally; the single-shot path below slurps
+	// it whole. A non-200 status is handled the same way in both cases (the
+	// error body is small and read in full).
+	if streaming && resp.StatusCode == http.StatusOK {
+		return p.readStream(resp, streamCB, model, bytesSent, start)
+	}
+
 	raw, readErr := io.ReadAll(resp.Body)
 	durationMs := time.Since(start).Milliseconds()
 	if readErr != nil {
@@ -273,6 +290,123 @@ func (p *Provider) Chat(
 		out.Status.BytesReceived = bytesReceived
 	}
 	return out, nil
+}
+
+// readStream consumes a Responses API SSE stream, firing cb on each
+// response.output_text.delta event, and captures the final response object from
+// the response.completed event. That object is fed through the SAME
+// parseResponse used by the single-shot path so output/tool/usage mapping is
+// shared verbatim. A response.error event is mapped to the HTTP-error status
+// shape (partial text may already have been emitted via cb).
+func (p *Provider) readStream(
+	resp *http.Response,
+	cb common.TextDeltaFunc,
+	model string,
+	bytesSent int64,
+	start time.Time,
+) (*LLMResponse, error) {
+	counter := &countingReader{r: resp.Body}
+	sr := common.NewSSEReader(counter)
+
+	var completed json.RawMessage
+	for {
+		payload, ok, err := sr.Next()
+		if !ok {
+			// io.EOF is the normal end-of-stream signal; any other error is real.
+			if err != nil && !errors.Is(err, io.EOF) {
+				durationMs := time.Since(start).Milliseconds()
+				return errorStatus(model, "error", durationMs, bytesSent, counter.n),
+					fmt.Errorf("failed to read stream: %w", err)
+			}
+			break
+		}
+		if payload == "[DONE]" {
+			break
+		}
+
+		var evt streamEvent
+		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
+			continue // ignore non-JSON framing
+		}
+
+		switch evt.Type {
+		case "response.output_text.delta":
+			if evt.Delta != "" {
+				cb(evt.Delta)
+			}
+		case "response.completed":
+			if len(evt.Response) > 0 {
+				completed = evt.Response
+			}
+		case "response.error", "error":
+			durationMs := time.Since(start).Milliseconds()
+			return errorStatus(model, "error", durationMs, bytesSent, counter.n),
+				&common.HTTPStatusError{
+					StatusCode:  http.StatusOK,
+					APIBase:     p.apiBase,
+					BodyPreview: streamEventErrorMessage(evt),
+				}
+		}
+	}
+
+	durationMs := time.Since(start).Milliseconds()
+	if p.responseLogFile != "" && len(completed) > 0 {
+		p.appendLog("response", model, resp.StatusCode, durationMs, completed)
+	}
+
+	if len(completed) == 0 {
+		return errorStatus(model, "parse_error", durationMs, bytesSent, counter.n),
+			fmt.Errorf("stream ended without response.completed event")
+	}
+
+	out, err := parseResponse(completed, model)
+	if err != nil {
+		return errorStatus(model, "parse_error", durationMs, bytesSent, counter.n), err
+	}
+	if out.Status != nil {
+		out.Status.Success = true
+		out.Status.DurationMs = durationMs
+		out.Status.BytesSent = bytesSent
+		out.Status.BytesReceived = counter.n
+	}
+	return out, nil
+}
+
+// streamEvent is the subset of a Responses API SSE event we consume. `response`
+// carries the full response object on response.completed (and is fed to the
+// shared parseResponse). `delta` carries incremental text on
+// response.output_text.delta.
+type streamEvent struct {
+	Type     string          `json:"type"`
+	Delta    string          `json:"delta"`
+	Response json.RawMessage `json:"response"`
+	Error    *struct {
+		Message string `json:"message"`
+	} `json:"error"`
+	Message string `json:"message"`
+}
+
+// streamEventErrorMessage extracts a human-readable message from an error event.
+func streamEventErrorMessage(evt streamEvent) string {
+	if evt.Error != nil && evt.Error.Message != "" {
+		return evt.Error.Message
+	}
+	if evt.Message != "" {
+		return evt.Message
+	}
+	return "responses stream error"
+}
+
+// countingReader tracks bytes read so streaming can report BytesReceived.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // buildInput converts internal messages into the Responses `input` array and a
