@@ -13,6 +13,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/logger"
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
@@ -102,9 +103,17 @@ func (p *Provider) Chat(
 	counter := &byteCounter{}
 	opts = append(opts, option.WithMiddleware(counter.middleware))
 
-	// OAuth/setup-tokens require streaming; API keys use non-streaming.
-	if p.tokenSource != nil {
-		return p.chatStreaming(ctx, params, opts, counter, model)
+	// Token-streaming is opt-in via a non-nil delta callback. The SDK already
+	// streams internally on the OAuth/setup-token path; when a callback is
+	// present we route through the same streaming path (for API keys too) so
+	// text deltas can be surfaced. Absent a callback, API keys keep the
+	// unchanged single-shot Messages.New path.
+	streamCB, _ := options[common.TextDeltaOption].(common.TextDeltaFunc)
+
+	// OAuth/setup-tokens require streaming; API keys use non-streaming unless a
+	// delta callback opts them into streaming.
+	if p.tokenSource != nil || streamCB != nil {
+		return p.chatStreaming(ctx, params, opts, counter, model, streamCB)
 	}
 
 	start := time.Now()
@@ -138,6 +147,7 @@ func (p *Provider) chatStreaming(
 	opts []option.RequestOption,
 	counter *byteCounter,
 	model string,
+	cb common.TextDeltaFunc,
 ) (*LLMResponse, error) {
 	start := time.Now()
 	stream := p.client.Messages.NewStreaming(ctx, params, opts...)
@@ -146,6 +156,15 @@ func (p *Provider) chatStreaming(
 	var msg anthropic.Message
 	for stream.Next() {
 		event := stream.Current()
+		// Surface incremental assistant text to the caller as it arrives. Only
+		// text_delta payloads carry model output; thinking_delta/input_json_delta
+		// (reasoning, tool-call argument fragments) are intentionally not fired.
+		if cb != nil && event.Type == "content_block_delta" {
+			delta := event.AsContentBlockDelta().Delta
+			if delta.Type == "text_delta" && delta.Text != "" {
+				cb(delta.Text)
+			}
+		}
 		if err := msg.Accumulate(event); err != nil {
 			return &LLMResponse{
 				Status: &DispatchStatus{

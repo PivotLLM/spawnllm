@@ -9,6 +9,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
 
@@ -84,6 +86,15 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("building request body: %w", err)
 	}
 
+	// Streaming is opt-in: only when the caller supplied a non-nil delta
+	// callback. Absent it, the request body and response handling stay on the
+	// unchanged single-shot path.
+	streamCB, streaming := options[common.TextDeltaOption].(common.TextDeltaFunc)
+	streaming = streaming && streamCB != nil
+	if streaming {
+		requestBody["stream"] = true
+	}
+
 	// Serialize to JSON
 	jsonBody, err := json.Marshal(requestBody)
 	if err != nil {
@@ -118,6 +129,13 @@ func (p *Provider) Chat(
 			fmt.Errorf("executing HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Streaming reads the body incrementally; the single-shot path below slurps
+	// the whole body. The non-200 error mapping is shared: both paths fall
+	// through to the status switch after reading the body.
+	if streaming && resp.StatusCode == http.StatusOK {
+		return p.readStream(resp, streamCB, model, bytesSent, start)
+	}
 
 	// Read response body
 	body, err := io.ReadAll(resp.Body)
@@ -158,6 +176,254 @@ func (p *Provider) Chat(
 		out.Status.BytesReceived = bytesReceived
 	}
 	return out, nil
+}
+
+// readStream consumes an Anthropic Messages SSE stream, firing cb for each
+// text delta as it arrives, then reconstructs the equivalent non-streaming
+// Messages-API response body and runs it through the SAME parseResponseBody the
+// single-shot path uses so tool/usage/stop mapping is shared verbatim. Status
+// fields are set exactly as the single-shot path sets them. An in-band `error`
+// event is mapped to an error (partial text may already have been emitted).
+func (p *Provider) readStream(
+	resp *http.Response,
+	cb common.TextDeltaFunc,
+	model string,
+	bytesSent int64,
+	start time.Time,
+) (*LLMResponse, error) {
+	counter := &countingReader{r: resp.Body}
+	body, streamErr := accumulateMessagesStream(counter, cb)
+	durationMs := time.Since(start).Milliseconds()
+	bytesReceived := counter.n
+
+	if streamErr != nil {
+		return httpErrorResponse(model, "error", durationMs, bytesSent, bytesReceived), streamErr
+	}
+
+	out, err := parseResponseBody(body)
+	if err != nil {
+		return httpErrorResponse(model, "parse_error", durationMs, bytesSent, bytesReceived), err
+	}
+	if out.Status != nil {
+		out.Status.DurationMs = durationMs
+		out.Status.BytesSent = bytesSent
+		out.Status.BytesReceived = bytesReceived
+	}
+	return out, nil
+}
+
+// countingReader tracks bytes read so streaming can report BytesReceived.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
+}
+
+// streamContentBlock accumulates one content block across SSE events, keyed by
+// its stream index. text blocks collect text; tool_use blocks collect the id,
+// name, and the input_json_delta fragments that reassemble the arguments JSON.
+type streamContentBlock struct {
+	typ   string
+	text  strings.Builder
+	id    string
+	name  string
+	input strings.Builder
+}
+
+// accumulateMessagesStream reads an Anthropic Messages SSE stream, firing cb for
+// each text_delta, and reconstructs the equivalent non-streaming Messages-API
+// JSON body (message_start skeleton + accumulated content blocks + message_delta
+// stop_reason/usage). The SSE line framing is reused from common.SSEReader; the
+// event/accumulation shape is Anthropic-specific and stays local to this
+// package. An `error` event returns a non-nil error.
+func accumulateMessagesStream(r io.Reader, cb common.TextDeltaFunc) ([]byte, error) {
+	sr := common.NewSSEReader(r)
+
+	var (
+		model        string
+		stopReason   string
+		inputTokens  int64
+		outputTokens int64
+		cacheRead    int64
+		cacheCreate  int64
+		order        []int
+		byIndex      = map[int]*streamContentBlock{}
+	)
+
+	for {
+		payload, ok, err := sr.Next()
+		if !ok {
+			if err != nil && !errors.Is(err, io.EOF) {
+				return nil, fmt.Errorf("reading stream: %w", err)
+			}
+			break
+		}
+
+		var evt messagesStreamEvent
+		if err := json.Unmarshal([]byte(payload), &evt); err != nil {
+			// Skip framing noise / keep-alives we don't understand.
+			continue
+		}
+
+		switch evt.Type {
+		case "error":
+			return nil, fmt.Errorf("stream error: %s", streamEventErrorMessage(evt.Error))
+		case "message_start":
+			if evt.Message != nil {
+				model = evt.Message.Model
+				inputTokens = evt.Message.Usage.InputTokens
+				outputTokens = evt.Message.Usage.OutputTokens
+				cacheRead = evt.Message.Usage.CacheReadInputTokens
+				cacheCreate = evt.Message.Usage.CacheCreationInputTokens
+			}
+		case "content_block_start":
+			blk := &streamContentBlock{}
+			if evt.ContentBlock != nil {
+				blk.typ = evt.ContentBlock.Type
+				blk.id = evt.ContentBlock.ID
+				blk.name = evt.ContentBlock.Name
+			}
+			byIndex[evt.Index] = blk
+			order = append(order, evt.Index)
+		case "content_block_delta":
+			blk := byIndex[evt.Index]
+			if blk == nil {
+				blk = &streamContentBlock{}
+				byIndex[evt.Index] = blk
+				order = append(order, evt.Index)
+			}
+			switch evt.Delta.Type {
+			case "text_delta":
+				if evt.Delta.Text != "" {
+					blk.text.WriteString(evt.Delta.Text)
+					cb(evt.Delta.Text)
+				}
+			case "input_json_delta":
+				// Tool-call argument fragments accumulate but are NOT surfaced
+				// via cb; only assistant text is delivered as deltas.
+				blk.input.WriteString(evt.Delta.PartialJSON)
+			}
+		case "message_delta":
+			if evt.Delta.StopReason != "" {
+				stopReason = evt.Delta.StopReason
+			}
+			// message_delta carries the running output token count.
+			if evt.Usage != nil {
+				outputTokens = evt.Usage.OutputTokens
+			}
+		}
+	}
+
+	return reconstructMessagesBody(model, stopReason, inputTokens, outputTokens,
+		cacheRead, cacheCreate, order, byIndex), nil
+}
+
+// reconstructMessagesBody assembles a non-streaming Messages-API JSON body from
+// the accumulated stream state. The shape mirrors exactly what parseResponseBody
+// consumes (content[].{text|tool_use}, stop_reason, model, usage), so no parsing
+// is duplicated.
+func reconstructMessagesBody(
+	model, stopReason string,
+	inputTokens, outputTokens, cacheRead, cacheCreate int64,
+	order []int,
+	byIndex map[int]*streamContentBlock,
+) []byte {
+	content := make([]map[string]any, 0, len(order))
+	for _, idx := range order {
+		blk := byIndex[idx]
+		switch blk.typ {
+		case "tool_use":
+			var input map[string]any
+			raw := blk.input.String()
+			if raw == "" {
+				input = map[string]any{}
+			} else if err := json.Unmarshal([]byte(raw), &input); err != nil {
+				input = map[string]any{}
+			}
+			content = append(content, map[string]any{
+				"type":  "tool_use",
+				"id":    blk.id,
+				"name":  blk.name,
+				"input": input,
+			})
+		default:
+			content = append(content, map[string]any{
+				"type": "text",
+				"text": blk.text.String(),
+			})
+		}
+	}
+
+	body := map[string]any{
+		"type":        "message",
+		"role":        "assistant",
+		"model":       model,
+		"stop_reason": stopReason,
+		"content":     content,
+		"usage": map[string]any{
+			"input_tokens":                inputTokens,
+			"output_tokens":               outputTokens,
+			"cache_read_input_tokens":     cacheRead,
+			"cache_creation_input_tokens": cacheCreate,
+		},
+	}
+
+	out, err := json.Marshal(body)
+	if err != nil {
+		// A map of plain strings/ints/maps cannot realistically fail to marshal;
+		// fall back to a benign empty-content body.
+		return []byte(`{"type":"message","content":[]}`)
+	}
+	return out
+}
+
+// messagesStreamEvent is the subset of an Anthropic Messages SSE event we read.
+type messagesStreamEvent struct {
+	Type    string `json:"type"`
+	Index   int    `json:"index"`
+	Message *struct {
+		Model string    `json:"model"`
+		Usage usageInfo `json:"usage"`
+	} `json:"message"`
+	ContentBlock *struct {
+		Type string `json:"type"`
+		ID   string `json:"id"`
+		Name string `json:"name"`
+	} `json:"content_block"`
+	Delta struct {
+		Type        string `json:"type"`
+		Text        string `json:"text"`
+		PartialJSON string `json:"partial_json"`
+		StopReason  string `json:"stop_reason"`
+	} `json:"delta"`
+	Usage *struct {
+		OutputTokens int64 `json:"output_tokens"`
+	} `json:"usage"`
+	Error json.RawMessage `json:"error"`
+}
+
+// streamEventErrorMessage extracts a human-readable message from an in-band
+// error envelope ({"message":"..."} or a bare string); otherwise the raw JSON.
+func streamEventErrorMessage(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return "messages stream error"
+	}
+	var obj struct {
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(raw, &obj); err == nil && obj.Message != "" {
+		return obj.Message
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil && s != "" {
+		return s
+	}
+	return string(raw)
 }
 
 // httpErrorResponse builds an LLMResponse with a partial DispatchStatus capturing

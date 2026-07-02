@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -102,6 +104,18 @@ func (p *Provider) Chat(
 		"messages": common.SerializeMessages(messages),
 	}
 
+	// Streaming is opt-in: only when the caller supplied a non-nil delta
+	// callback. Absent it, every field below and the response handling stay on
+	// the unchanged single-shot path.
+	streamCB, streaming := options[common.TextDeltaOption].(common.TextDeltaFunc)
+	streaming = streaming && streamCB != nil
+	if streaming {
+		requestBody["stream"] = true
+		// include_usage makes the final SSE chunk carry the usage object, which
+		// the non-streaming shape (and DispatchStatus) needs.
+		requestBody["stream_options"] = map[string]any{"include_usage": true}
+	}
+
 	if len(tools) > 0 {
 		requestBody["tools"] = tools
 		requestBody["tool_choice"] = "auto"
@@ -146,6 +160,10 @@ func (p *Provider) Chat(
 		return azureErrorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, 0), respErr
 	}
 
+	if streaming {
+		return p.readStream(resp, streamCB, tools, model, bytesSent, start)
+	}
+
 	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools))
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
@@ -161,6 +179,62 @@ func (p *Provider) Chat(
 		}
 	}
 	return out, nil
+}
+
+// readStream consumes an SSE chat/completions response (Azure's streaming shape
+// is identical to OpenAI's), firing cb for each content delta, then reconstructs
+// the equivalent non-streaming body and runs it through the SAME parser the
+// single-shot path uses via common.AccumulateChatStream so no parsing is
+// duplicated. Status fields are set exactly as the single-shot path sets them.
+// An in-band error chunk is mapped to the HTTP-error status shape (partial
+// content may already have been emitted via cb).
+func (p *Provider) readStream(
+	resp *http.Response,
+	cb common.TextDeltaFunc,
+	tools []ToolDefinition,
+	model string,
+	bytesSent int64,
+	start time.Time,
+) (*LLMResponse, error) {
+	counter := &countingReader{r: resp.Body}
+	out, _, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools))
+	durationMs := time.Since(start).Milliseconds()
+
+	if err != nil {
+		var streamErr *common.StreamChatError
+		if errors.As(err, &streamErr) {
+			return azureErrorStatus(model, "error", durationMs, bytesSent, counter.n),
+				&common.HTTPStatusError{
+					StatusCode:  http.StatusOK,
+					APIBase:     p.apiBase,
+					BodyPreview: streamErr.Message,
+				}
+		}
+		return azureErrorStatus(model, "parse_error", durationMs, bytesSent, counter.n), err
+	}
+
+	if out.Status != nil {
+		out.Status.Success = true
+		out.Status.DurationMs = durationMs
+		out.Status.BytesSent = bytesSent
+		out.Status.BytesReceived = counter.n
+		if out.Status.Model == "" {
+			out.Status.Model = model
+		}
+	}
+	return out, nil
+}
+
+// countingReader tracks bytes read so streaming can report BytesReceived.
+type countingReader struct {
+	r io.Reader
+	n int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += int64(n)
+	return n, err
 }
 
 // azureErrorStatus builds an LLMResponse whose Status records a failed HTTP dispatch.
