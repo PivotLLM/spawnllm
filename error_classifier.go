@@ -76,6 +76,15 @@ var (
 		rxp(`"billing_url"\s*:`),
 	}
 
+	// limitExceededPatterns catch provider spend/usage/key caps that report a
+	// generic "... limit exceeded" body — e.g. OpenRouter's per-key daily limit,
+	// which arrives as HTTP 403 and would otherwise be misclassified as auth. Kept
+	// generic (not tied to one provider). Token/context limits also say "limit
+	// exceeded", so callers must rule out contextLimitPatterns BEFORE this.
+	limitExceededPatterns = []errorPattern{
+		substr("limit exceeded"),
+	}
+
 	authPatterns = []errorPattern{
 		rxp(`invalid[_ ]?api[_ ]?key`),
 		substr("incorrect api key"),
@@ -173,9 +182,24 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		// — without this check, the request would be treated as a transient
 		// rate limit and cooldown-cycled against a model that is permanently
 		// out of credits.
-		if matchesAny(strings.ToLower(statusErr.BodyPreview), billingBodyPatterns) {
+		bodyLower := strings.ToLower(statusErr.BodyPreview)
+		if matchesAny(bodyLower, billingBodyPatterns) {
 			return &FailoverError{
 				Reason:     FailoverBilling,
+				Provider:   provider,
+				Model:      model,
+				Status:     statusErr.StatusCode,
+				RetryAfter: statusErr.RetryAfter,
+				Wrapped:    err,
+			}
+		}
+		// A generic "... limit exceeded" body (e.g. OpenRouter's per-key daily cap,
+		// which returns 403) is a rate/usage limit, not the auth its status would
+		// otherwise imply. Token/context limits also say "limit exceeded" — rule
+		// those out first so they keep their context_limit classification.
+		if !matchesAny(bodyLower, contextLimitPatterns) && matchesAny(bodyLower, limitExceededPatterns) {
+			return &FailoverError{
+				Reason:     FailoverRateLimit,
 				Provider:   provider,
 				Model:      model,
 				Status:     statusErr.StatusCode,
@@ -203,6 +227,19 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 			Reason:   FailoverFormat,
 			Provider: provider,
 			Model:    model,
+			Wrapped:  err,
+		}
+	}
+
+	// A generic "... limit exceeded" message overrides a co-occurring 401/403 in
+	// the text: it's a spend/usage limit, not auth. Token/context limits (also
+	// "limit exceeded") are excluded so they fall through to context_limit below.
+	if !matchesAny(msg, contextLimitPatterns) && matchesAny(msg, limitExceededPatterns) {
+		return &FailoverError{
+			Reason:   FailoverRateLimit,
+			Provider: provider,
+			Model:    model,
+			Status:   extractHTTPStatus(msg),
 			Wrapped:  err,
 		}
 	}

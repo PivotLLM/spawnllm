@@ -67,6 +67,48 @@ func TestClassifyError_StatusCodes(t *testing.T) {
 	}
 }
 
+func TestClassifyError_LimitExceededIsRateLimitNotAuth(t *testing.T) {
+	// The live OpenRouter per-key daily cap: HTTP 403 whose body says "Key limit
+	// exceeded". Must classify as rate_limit, not auth, on the structured path
+	// (what ClawEh's HTTP providers hit).
+	structured := &common.HTTPStatusError{
+		StatusCode:  403,
+		BodyPreview: `{"error":{"message":"Key limit exceeded (daily limit). Manage it using https://openrouter.ai/...","code":403}}`,
+	}
+	if got := ClassifyError(structured, "openrouter", "gpt-5.5"); got == nil || got.Reason != FailoverRateLimit {
+		t.Fatalf("structured 403 key-limit: reason = %v, want rate_limit", reasonOf(got))
+	}
+
+	// Same, arriving as a plain message with a co-occurring 403.
+	msg := errors.New(`status: 403 body: {"error":{"message":"Key limit exceeded (daily limit)","code":403}}`)
+	if got := ClassifyError(msg, "openrouter", "gpt-5.5"); got == nil || got.Reason != FailoverRateLimit {
+		t.Fatalf("message 403 key-limit: reason = %v, want rate_limit", reasonOf(got))
+	}
+
+	// Guard: a token/context "limit exceeded" must stay context_limit, not be
+	// swallowed by the generic rate-limit rule.
+	tok := errors.New("token limit exceeded for this model")
+	if got := ClassifyError(tok, "openai", "gpt-4"); got == nil || got.Reason != FailoverContextLimit {
+		t.Fatalf("token limit exceeded: reason = %v, want context_limit", reasonOf(got))
+	}
+
+	// A genuine 403 auth failure (no "limit exceeded") stays auth.
+	auth := &common.HTTPStatusError{
+		StatusCode:  403,
+		BodyPreview: `{"error":{"message":"No auth credentials found","code":403}}`,
+	}
+	if got := ClassifyError(auth, "openrouter", "gpt-5.5"); got == nil || got.Reason != FailoverAuth {
+		t.Fatalf("403 auth: reason = %v, want auth", reasonOf(got))
+	}
+}
+
+func reasonOf(fe *FailoverError) FailoverReason {
+	if fe == nil {
+		return "<nil>"
+	}
+	return fe.Reason
+}
+
 func TestClassifyError_RateLimitPatterns(t *testing.T) {
 	patterns := []string{
 		"rate limit exceeded",
