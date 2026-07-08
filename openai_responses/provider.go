@@ -428,7 +428,7 @@ func buildInput(messages []Message) (instructions string, input []any) {
 			input = append(input, map[string]any{
 				"type":    "function_call_output",
 				"call_id": m.ToolCallID,
-				"output":  m.Content,
+				"output":  functionCallOutput(m),
 			})
 		case "assistant":
 			// Replay this turn's reasoning items first (verbatim, incl.
@@ -465,6 +465,30 @@ func buildInput(messages []Message) (instructions string, input []any) {
 		}
 	}
 	return sys.String(), input
+}
+
+// functionCallOutput builds the "output" of a Responses function_call_output: a
+// plain string when the tool returned only text, or an array of content parts
+// (input_text + input_image) when it returned images. The Responses API accepts an
+// image/file content array as a function output — this is how a tool (e.g. an MCP
+// screenshot) hands an image directly to a vision model via its tool result.
+func functionCallOutput(m Message) any {
+	if len(m.Media) == 0 {
+		return m.Content
+	}
+	parts := make([]map[string]any, 0, 1+len(m.Media))
+	if m.Content != "" {
+		parts = append(parts, map[string]any{"type": "input_text", "text": m.Content})
+	}
+	for _, url := range m.Media {
+		if strings.HasPrefix(url, "data:image/") {
+			parts = append(parts, map[string]any{"type": "input_image", "image_url": url})
+		}
+	}
+	if len(parts) == 0 {
+		return m.Content
+	}
+	return parts
 }
 
 // userInputMessage maps a user message to a Responses input message, using

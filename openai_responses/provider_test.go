@@ -339,3 +339,24 @@ func TestChat_IncompleteContentFilter(t *testing.T) {
 		t.Errorf("finish=%q normal=%v, want content_filter / false", out.FinishReason, out.Normal)
 	}
 }
+
+func TestFunctionCallOutput_Image(t *testing.T) {
+	// Text-only tool result → plain string output (unchanged).
+	if got := functionCallOutput(Message{Content: "sunny"}); got != "sunny" {
+		t.Errorf("text output = %v, want %q", got, "sunny")
+	}
+
+	// Tool result with an image → content-part array with input_image, so a
+	// Responses vision model gets the image directly from the tool result.
+	m := Message{Content: "Screenshot:", Media: []string{"data:image/png;base64,AAA"}}
+	parts, ok := functionCallOutput(m).([]map[string]any)
+	if !ok || len(parts) != 2 {
+		t.Fatalf("image output = %#v, want a 2-part array", functionCallOutput(m))
+	}
+	if parts[0]["type"] != "input_text" || parts[0]["text"] != "Screenshot:" {
+		t.Errorf("part[0] = %v, want input_text", parts[0])
+	}
+	if parts[1]["type"] != "input_image" || parts[1]["image_url"] != "data:image/png;base64,AAA" {
+		t.Errorf("part[1] = %v, want input_image with image_url", parts[1])
+	}
+}
