@@ -260,8 +260,10 @@ func TestClassifyError_ImageDimensionError(t *testing.T) {
 	if result.Reason != FailoverFormat {
 		t.Errorf("reason = %q, want format", result.Reason)
 	}
-	if result.IsRetriable() {
-		t.Error("image dimension error should not be retriable")
+	// Format errors are now uniformly retriable at the IsRetriable level; the
+	// image fallback path enforces its own non-retry for dimension/size errors.
+	if !result.IsRetriable() {
+		t.Error("format errors should be retriable")
 	}
 }
 
@@ -308,7 +310,7 @@ func TestFailoverError_IsRetriable(t *testing.T) {
 		{FailoverBilling, true},
 		{FailoverTimeout, true},
 		{FailoverOverloaded, true},
-		{FailoverFormat, false},
+		{FailoverFormat, true},
 		{FailoverUnknown, true},
 	}
 

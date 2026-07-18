@@ -126,10 +126,15 @@ func (e *FailoverError) Unwrap() error {
 	return e.Wrapped
 }
 
-// IsRetriable returns true if this error should trigger fallback to next candidate.
-// Non-retriable: Format errors (bad request structure, image dimension/size).
+// IsRetriable reports whether this error should trigger fallback to the next
+// candidate. All classified failover errors are retriable: in a multi-provider
+// chain even a 400 "format" error is usually provider-specific (e.g. a model's
+// thinking-mode request contract that another provider does not impose), so the
+// next candidate may well accept the request. Genuinely model-independent format
+// errors that must not fan out across the chain (image dimension/size) are
+// short-circuited in the image fallback path itself, not here.
 func (e *FailoverError) IsRetriable() bool {
-	return e.Reason != FailoverFormat
+	return true
 }
 
 // ModelConfig holds an ordered list of models, tried in order (index 0 first).
