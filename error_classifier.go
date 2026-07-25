@@ -92,6 +92,7 @@ var (
 		substr("authentication"),
 		substr("re-authenticate"),
 		substr("oauth token refresh failed"),
+		substr("oauth token revoked"),
 		substr("unauthorized"),
 		substr("forbidden"),
 		substr("access denied"),
@@ -101,6 +102,12 @@ var (
 		rxp(`\b403\b`),
 		substr("no credentials found"),
 		substr("no api key found"),
+		// Claude Code / CLI login prompts (exit 1 with stderr, no HTTP status).
+		substr("not logged in"),
+		substr("please run /login"),
+		substr("/login"),
+		substr("sign in"),
+		substr("signing in"),
 	}
 
 	formatPatterns = []errorPattern{

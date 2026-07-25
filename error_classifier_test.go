@@ -207,6 +207,7 @@ func TestClassifyError_AuthPatterns(t *testing.T) {
 		"authentication failed",
 		"re-authenticate",
 		"oauth token refresh failed",
+		"oauth token revoked",
 		"unauthorized access",
 		"forbidden",
 		"access denied",
@@ -214,6 +215,15 @@ func TestClassifyError_AuthPatterns(t *testing.T) {
 		"token has expired",
 		"no credentials found",
 		"no api key found",
+		// Claude Code documented login / sign-in prompts.
+		"Not logged in · Please run /login",
+		"Login expired · Please run /login",
+		"OAuth token revoked · Please run /login",
+		"claude cli error: Not logged in · Please run /login",
+		"Please run /login · API Error: 401 Invalid authentication credentials",
+		"Your organization has disabled API key authentication · Run /login to sign in with your claude.ai account",
+		"needed to sign in",
+		"signing in required",
 	}
 
 	for _, msg := range patterns {
