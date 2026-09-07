@@ -371,3 +371,6 @@ type antigravityCliUsageInfo struct {
 // antigravityStatusSuccess is the only status the CLI reports for a completed
 // turn.
 const antigravityStatusSuccess = "SUCCESS"
+
+// Workspace returns the working directory the CLI subprocess runs in.
+func (p *AntigravityCliProvider) Workspace() string { return p.workspace }
