@@ -48,7 +48,7 @@ type ThinkingCapable interface {
 }
 
 // CLIProvider is an optional interface implemented by subprocess-based providers
-// (claude-cli, codex-cli, gemini-cli). CLI providers do not accept HTTP request
+// (claude-cli, codex-cli, antigravity-cli, cursor-cli). CLI providers do not accept HTTP request
 // parameters such as temperature — options are passed as prompt context only.
 type CLIProvider interface {
 	IsCLI() bool

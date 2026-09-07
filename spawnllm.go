@@ -19,7 +19,7 @@ import (
 type ProviderSpec struct {
 	// Kind selects the wire protocol / transport: "openai-chat",
 	// "openai-responses", "azure", "anthropic", "anthropic-messages",
-	// "claude-cli", "codex-cli", "gemini-cli".
+	// "claude-cli", "codex-cli", "antigravity-cli", "cursor-cli".
 	Kind string
 
 	// API providers.
@@ -268,8 +268,11 @@ func buildProvider(spec ProviderSpec) (LLMProvider, string, error) {
 		return NewClaudeCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	case "codex-cli":
 		return NewCodexCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
-	case "gemini-cli":
-		return NewGeminiCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
+	// "gemini-cli" is accepted as an alias: Google deprecated the Gemini CLI in
+	// favour of Antigravity, so an existing config naming it keeps working and
+	// runs agy instead.
+	case "antigravity-cli", "gemini-cli":
+		return NewAntigravityCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	default:
 		return nil, "", fmt.Errorf("spawnllm: unknown provider kind %q", spec.Kind)
 	}

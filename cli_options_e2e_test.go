@@ -110,13 +110,13 @@ func TestCodexCLI_AppendsFortification_WhenJSONObjectOptionSet(t *testing.T) {
 	}
 }
 
-// --- Gemini CLI ---
+// --- Antigravity CLI ---
 
-func TestGeminiCLI_AppendsFortification_WhenJSONObjectOptionSet(t *testing.T) {
+func TestAntigravityCLI_AppendsFortification_WhenJSONObjectOptionSet(t *testing.T) {
 	script, stdinFile := stdinCaptureScript(t,
-		`{"session_id":"t","response":"{}","stats":{"models":{}}}`)
+		`{"conversation_id":"t","status":"SUCCESS","response":"{}"}`)
 
-	p := NewGeminiCliProvider("", t.TempDir(), nil, nil)
+	p := NewAntigravityCliProvider("", t.TempDir(), nil, nil)
 	p.command = script
 
 	_, err := p.Chat(context.Background(),
@@ -129,6 +129,6 @@ func TestGeminiCLI_AppendsFortification_WhenJSONObjectOptionSet(t *testing.T) {
 	}
 	got := readStdin(t, stdinFile)
 	if !strings.Contains(got, JSONObjectFortification) {
-		t.Fatalf("gemini-cli stdin missing fortification.\n--- got ---\n%s", got)
+		t.Fatalf("antigravity-cli stdin missing fortification.\n--- got ---\n%s", got)
 	}
 }
