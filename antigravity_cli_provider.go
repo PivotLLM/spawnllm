@@ -275,6 +275,17 @@ func (p *AntigravityCliProvider) parseAntigravityCliResponse(output string) (*LL
 			fmt.Errorf("antigravity cli status %q: %s", resp.Status, detail)
 	}
 
+	// A turn that produced no text because its tool calls were refused is
+	// reported as SUCCESS, which would otherwise reach the user as an empty
+	// reply with nothing to diagnose. Name the denied action instead.
+	if strings.TrimSpace(resp.Response) == "" && len(resp.DeniedActions) > 0 {
+		return &LLMResponse{Status: status},
+			fmt.Errorf("antigravity cli denied %s and produced no answer: "+
+				"add --dangerously-skip-permissions to the model's extra_args, "+
+				"or an allow-rule in the CLI's own settings",
+				strings.Join(deniedActionNames(resp.DeniedActions), ", "))
+	}
+
 	// CLI is itself agentic — its `response` is the final assistant text. We do
 	// NOT extract tool calls from this text: the agent loop must treat each CLI
 	// invocation as one complete round.
@@ -355,6 +366,18 @@ type antigravityCliJSONResponse struct {
 	NumTurns        int                     `json:"num_turns"`
 	Model           string                  `json:"model"`
 	Usage           antigravityCliUsageInfo `json:"usage"`
+	// DeniedActions lists tool calls the CLI refused. Headless mode cannot
+	// prompt for approval, so without --dangerously-skip-permissions (or an
+	// allow-rule in the CLI's own settings) it auto-denies and returns
+	// status SUCCESS with an empty response — a completed turn that says
+	// nothing. Reported so the caller sees a reason instead of silence.
+	DeniedActions []antigravityCliDeniedAction `json:"denied_actions"`
+}
+
+// antigravityCliDeniedAction is one refused tool call.
+type antigravityCliDeniedAction struct {
+	Action      string `json:"action"`
+	DisplayName string `json:"display_name"`
 }
 
 // antigravityCliUsageInfo is the token accounting from an Antigravity CLI
@@ -366,6 +389,20 @@ type antigravityCliUsageInfo struct {
 	ThinkingTokens  int `json:"thinking_tokens"`
 	CacheReadTokens int `json:"cache_read_tokens"`
 	TotalTokens     int `json:"total_tokens"`
+}
+
+// deniedActionNames returns the human names of refused actions, falling back to
+// the machine name when the CLI supplies no display name.
+func deniedActionNames(actions []antigravityCliDeniedAction) []string {
+	out := make([]string, 0, len(actions))
+	for _, a := range actions {
+		if a.DisplayName != "" {
+			out = append(out, a.DisplayName)
+			continue
+		}
+		out = append(out, a.Action)
+	}
+	return out
 }
 
 // antigravityStatusSuccess is the only status the CLI reports for a completed

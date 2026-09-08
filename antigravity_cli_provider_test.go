@@ -180,3 +180,54 @@ func TestAntigravityCliProvider_ModelFlag(t *testing.T) {
 		}
 	}
 }
+
+// A turn whose tool calls were refused comes back as status SUCCESS with an
+// empty response. Reported as success it reaches the user as an assistant that
+// answered nothing, with no error and nothing in the log to explain it — the
+// exact shape of a CLI missing --dangerously-skip-permissions.
+func TestParseAntigravityCliResponse_DeniedToolCallIsAnError(t *testing.T) {
+	p := NewAntigravityCliProvider("agy", ".", nil, nil)
+	output := `{"conversation_id":"x","status":"SUCCESS","response":"",` +
+		`"duration_seconds":3.4,"num_turns":1,` +
+		`"usage":{"input_tokens":5363,"output_tokens":499,"total_tokens":5862},` +
+		`"denied_actions":[{"action":"command","display_name":"RunCommand"}]}`
+
+	_, err := p.parseAntigravityCliResponse(output)
+	if err == nil {
+		t.Fatal("a denied tool call was reported as a successful empty answer")
+	}
+	for _, want := range []string{"RunCommand", "--dangerously-skip-permissions"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q does not mention %q", err, want)
+		}
+	}
+}
+
+// A denial alongside real text is not a failure: the CLI answered, having
+// worked around whatever it could not do.
+func TestParseAntigravityCliResponse_DeniedButAnsweredIsNotAnError(t *testing.T) {
+	p := NewAntigravityCliProvider("agy", ".", nil, nil)
+	output := `{"conversation_id":"x","status":"SUCCESS","response":"here is the answer",` +
+		`"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2},` +
+		`"denied_actions":[{"action":"command","display_name":"RunCommand"}]}`
+
+	resp, err := p.parseAntigravityCliResponse(output)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Content != "here is the answer" {
+		t.Errorf("content = %q", resp.Content)
+	}
+}
+
+// An empty answer with no denials stays a successful empty turn — it is warned
+// about, not turned into an error, and that behaviour predates this check.
+func TestParseAntigravityCliResponse_EmptyWithoutDenialIsStillSuccess(t *testing.T) {
+	p := NewAntigravityCliProvider("agy", ".", nil, nil)
+	output := `{"conversation_id":"x","status":"SUCCESS","response":"",` +
+		`"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}`
+
+	if _, err := p.parseAntigravityCliResponse(output); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
