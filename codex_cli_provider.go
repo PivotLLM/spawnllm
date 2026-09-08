@@ -76,7 +76,7 @@ func (p *CodexCliProvider) Chat(
 	// last thing the CLI reads before generating its reply.
 	prompt := applyCLIOptions("codex-cli", p.buildPrompt(messages), options)
 
-	args := []string{"exec", "--json", "--color", "never"}
+	args := CodexCliBaseArgs()
 	args = append(args, p.extraArgs...)
 	if model != "" && model != "codex-cli" {
 		args = append(args, "-m", model)
@@ -84,7 +84,7 @@ func (p *CodexCliProvider) Chat(
 	if p.workspace != "" {
 		args = append(args, "-C", p.workspace)
 	}
-	args = append(args, "-") // read prompt from stdin
+	args = append(args, StdinArg) // read prompt from stdin
 
 	cmd := exec.CommandContext(ctx, p.command, args...)
 	if p.workspace != "" {

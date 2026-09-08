@@ -77,7 +77,7 @@ func (p *CursorCliProvider) Chat(
 	// The prompt is piped on stdin (as in `echo … | cursor-agent -p …`), which
 	// avoids exposing it in the argument list and sidesteps ARG_MAX. Approval-
 	// bypass flags (e.g. --yolo) come from config ExtraArgs, not baked in here.
-	args := []string{"-p", "--output-format", "json"}
+	args := CursorCliBaseArgs()
 	args = append(args, p.extraArgs...)
 	if model != "" && model != "cursor-agent" && model != "cursor-cli" && model != "cursor" {
 		args = append(args, "--model", model)

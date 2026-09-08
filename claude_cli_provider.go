@@ -71,12 +71,12 @@ func (p *ClaudeCliProvider) Chat(
 	// last thing the CLI reads before generating its reply.
 	prompt := applyCLIOptions("claude-cli", p.buildStdinPrompt(messages), options)
 
-	args := []string{"-p", "--output-format", "json"}
+	args := ClaudeCliBaseArgs()
 	args = append(args, p.extraArgs...)
 	if model != "" && model != "claude-code" && model != "claude-cli" {
 		args = append(args, "--model", model)
 	}
-	args = append(args, "-") // read from stdin
+	args = append(args, StdinArg) // read from stdin
 
 	cmd := exec.CommandContext(ctx, p.command, args...)
 	if p.workspace != "" {

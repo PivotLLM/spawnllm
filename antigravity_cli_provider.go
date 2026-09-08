@@ -92,7 +92,7 @@ func (p *AntigravityCliProvider) Chat(
 	//
 	// Approval-bypass flags (--dangerously-skip-permissions) come from config
 	// ExtraArgs, not baked in here, so an operator can run without them.
-	args := []string{"--input-format", "text", "--output-format", "json"}
+	args := AntigravityCliBaseArgs()
 	args = append(args, p.extraArgs...)
 	if model != "" && model != "antigravity-cli" && model != "agy" && model != "antigravity" {
 		args = append(args, "--model", model)
