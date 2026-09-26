@@ -78,22 +78,21 @@ func (p *ClaudeCliProvider) Chat(
 	}
 	args = append(args, StdinArg) // read from stdin
 
-	cmd := exec.CommandContext(ctx, p.command, args...)
+	cmd := newCLICommand(ctx, p.command, args...)
 	if p.workspace != "" {
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 	cmd.Env = applyProviderEnv(p.env)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	bytesSent := int64(len(prompt))
-	started := time.Now()
-	runErr := cmd.Run()
-	elapsed := time.Since(started)
-	bytesReceived := int64(stdout.Len())
+	run, runErr := runCLI(ctx, cmd)
+	stdout, stderr, elapsed := run.stdout, run.stderr, run.elapsed
+	bytesReceived := stdout.Received()
+	if errors.Is(runErr, errCLIOutputCapExceeded) {
+		return cliErrorResponse(model, "output_cap", elapsed, bytesSent, bytesReceived),
+			fmt.Errorf("claude cli: %w", runErr)
+	}
 
 	if runErr != nil {
 		if ctx.Err() == context.DeadlineExceeded {

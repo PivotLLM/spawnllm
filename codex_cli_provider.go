@@ -86,23 +86,22 @@ func (p *CodexCliProvider) Chat(
 	}
 	args = append(args, StdinArg) // read prompt from stdin
 
-	cmd := exec.CommandContext(ctx, p.command, args...)
+	cmd := newCLICommand(ctx, p.command, args...)
 	if p.workspace != "" {
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
 	cmd.Env = applyProviderEnv(p.env)
 
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
 	bytesSent := int64(len(prompt))
-	start := time.Now()
-	runErr := cmd.Run()
-	elapsed := time.Since(start)
+	run, runErr := runCLI(ctx, cmd)
+	stdout, stderr, elapsed := run.stdout, run.stderr, run.elapsed
 	durationMs := elapsed.Milliseconds()
-	bytesReceived := int64(stdout.Len())
+	bytesReceived := stdout.Received()
+	if errors.Is(runErr, errCLIOutputCapExceeded) {
+		return cliErrorResponse(model, "output_cap", elapsed, bytesSent, bytesReceived),
+			fmt.Errorf("codex cli: %w", runErr)
+	}
 
 	// Parse JSONL from stdout even if exit code is non-zero,
 	// because codex writes diagnostic noise to stderr (e.g. rollout errors)
