@@ -21,7 +21,11 @@ type CodexCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *CodexCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewCodexCliProvider creates a new Codex CLI provider.
 // When command is empty, it defaults to "codex".
@@ -91,7 +95,7 @@ func (p *CodexCliProvider) Chat(
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
+	cmd.Env = applyProviderEnv(p.baseEnv, p.env)
 
 	bytesSent := int64(len(prompt))
 	run, runErr := runCLI(ctx, cmd)

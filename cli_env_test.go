@@ -5,15 +5,16 @@ package spawnllm
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
 
 func TestApplyProviderEnv_Nil(t *testing.T) {
-	if got := applyProviderEnv(nil); got != nil {
+	if got := applyProviderEnv(nil, nil); got != nil {
 		t.Errorf("expected nil for nil map, got %v", got)
 	}
-	if got := applyProviderEnv(map[string]string{}); got != nil {
+	if got := applyProviderEnv(nil, map[string]string{}); got != nil {
 		t.Errorf("expected nil for empty map, got %v", got)
 	}
 }
@@ -26,7 +27,7 @@ func TestApplyProviderEnv_AppendsAfterOSEnviron(t *testing.T) {
 	}
 	defer os.Unsetenv(key)
 
-	got := applyProviderEnv(map[string]string{
+	got := applyProviderEnv(nil, map[string]string{
 		key:                 "from-model",
 		"CLAW_TEST_NEW_KEY": "fresh",
 	})
@@ -60,7 +61,7 @@ func TestApplyProviderEnv_AppendsAfterOSEnviron(t *testing.T) {
 }
 
 func TestApplyProviderEnv_SortedForDeterminism(t *testing.T) {
-	got := applyProviderEnv(map[string]string{
+	got := applyProviderEnv(nil, map[string]string{
 		"ZZZ": "1",
 		"AAA": "2",
 		"MMM": "3",
@@ -76,5 +77,53 @@ func TestApplyProviderEnv_SortedForDeterminism(t *testing.T) {
 		if !strings.HasPrefix(appended[i], prefix) {
 			t.Errorf("appended[%d] = %q, want prefix %q", i, appended[i], prefix)
 		}
+	}
+}
+
+// A supplied base replaces os.Environ() entirely: the host's own variables do
+// not reach the subprocess, and the per-model overlay still comes last.
+func TestApplyProviderEnv_BaseReplacesOSEnviron(t *testing.T) {
+	t.Setenv("CLAW_TEST_HOST_SECRET", "secret")
+
+	base := []string{"PATH=/usr/bin", "HOME=/home/alice"}
+	got := applyProviderEnv(base, map[string]string{"HOME": "/srv/model", "CODEX_HOME": "/srv/codex"})
+
+	want := []string{"PATH=/usr/bin", "HOME=/home/alice", "CODEX_HOME=/srv/codex", "HOME=/srv/model"}
+	if !slices.Equal(got, want) {
+		t.Errorf("got %v, want %v", got, want)
+	}
+	if !slices.Equal(base, []string{"PATH=/usr/bin", "HOME=/home/alice"}) {
+		t.Errorf("base was modified: %v", base)
+	}
+
+	// An explicit empty base means "no environment at all", not "inherit".
+	if got := applyProviderEnv([]string{}, nil); got == nil || len(got) != 0 {
+		t.Errorf("empty base: got %v, want empty non-nil slice", got)
+	}
+}
+
+// Every CLI provider accepts a base environment through the shared interface.
+func TestCLIProviders_ImplementBaseEnvSetter(t *testing.T) {
+	providers := []BaseEnvSetter{
+		NewClaudeCliProvider("", "", nil, nil),
+		NewCodexCliProvider("", "", nil, nil),
+		NewCursorCliProvider("", "", nil, nil),
+		NewAntigravityCliProvider("", "", nil, nil),
+	}
+	base := []string{"PATH=/usr/bin"}
+	for _, p := range providers {
+		p.SetBaseEnv(base)
+	}
+	if got := providers[0].(*ClaudeCliProvider).baseEnv; !slices.Equal(got, base) {
+		t.Errorf("claude baseEnv = %v, want %v", got, base)
+	}
+	if got := providers[1].(*CodexCliProvider).baseEnv; !slices.Equal(got, base) {
+		t.Errorf("codex baseEnv = %v, want %v", got, base)
+	}
+	if got := providers[2].(*CursorCliProvider).baseEnv; !slices.Equal(got, base) {
+		t.Errorf("cursor baseEnv = %v, want %v", got, base)
+	}
+	if got := providers[3].(*AntigravityCliProvider).baseEnv; !slices.Equal(got, base) {
+		t.Errorf("antigravity baseEnv = %v, want %v", got, base)
 	}
 }

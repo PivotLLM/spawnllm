@@ -20,7 +20,11 @@ type ClaudeCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *ClaudeCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewClaudeCliProvider creates a new Claude CLI provider.
 // When command is empty, it defaults to "claude".
@@ -83,7 +87,7 @@ func (p *ClaudeCliProvider) Chat(
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
+	cmd.Env = applyProviderEnv(p.baseEnv, p.env)
 
 	bytesSent := int64(len(prompt))
 	run, runErr := runCLI(ctx, cmd)

@@ -23,7 +23,11 @@ type CursorCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *CursorCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewCursorCliProvider creates a new Cursor CLI provider.
 // When command is empty, it defaults to "cursor-agent".
@@ -88,7 +92,7 @@ func (p *CursorCliProvider) Chat(
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
+	cmd.Env = applyProviderEnv(p.baseEnv, p.env)
 
 	bytesSent := int64(len(prompt))
 	run, runErr := runCLI(ctx, cmd)
