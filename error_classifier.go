@@ -214,6 +214,20 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 				Wrapped:    err,
 			}
 		}
+		// Context overflow arrives as HTTP 400 from OpenAI-compatible endpoints
+		// ("context_length_exceeded") and Anthropic ("prompt is too long"). The
+		// status alone would classify it as a format error and lose the turn;
+		// the body says what it really is, so check that before the status.
+		if matchesAny(bodyLower, contextLimitPatterns) {
+			return &FailoverError{
+				Reason:     FailoverContextLimit,
+				Provider:   provider,
+				Model:      model,
+				Status:     statusErr.StatusCode,
+				RetryAfter: statusErr.RetryAfter,
+				Wrapped:    err,
+			}
+		}
 		if reason := classifyByStatus(statusErr.StatusCode); reason != "" {
 			return &FailoverError{
 				Reason:     reason,
