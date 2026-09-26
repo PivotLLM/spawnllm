@@ -16,6 +16,8 @@ func WithAgentID(ctx context.Context, agentID string) context.Context {
 
 // AgentIDFromContext returns the agent ID stored in ctx, or "" if not set.
 func AgentIDFromContext(ctx context.Context) string {
-	v, _ := ctx.Value(ctxKeyAgentID).(string)
-	return v
+	if v, ok := ctx.Value(ctxKeyAgentID).(string); ok {
+		return v
+	}
+	return ""
 }

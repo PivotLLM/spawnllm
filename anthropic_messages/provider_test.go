@@ -189,8 +189,14 @@ func TestBuildRequestBody(t *testing.T) {
 				return
 			}
 			if !reflect.DeepEqual(got, tt.want) {
-				gotJSON, _ := json.MarshalIndent(got, "", "  ")
-				wantJSON, _ := json.MarshalIndent(tt.want, "", "  ")
+				gotJSON, err := json.MarshalIndent(got, "", "  ")
+				if err != nil {
+					t.Fatalf("marshal: %v", err)
+				}
+				wantJSON, err := json.MarshalIndent(tt.want, "", "  ")
+				if err != nil {
+					t.Fatalf("marshal: %v", err)
+				}
 				t.Errorf("buildRequestBody() mismatch:\ngot:\n%s\nwant:\n%s", gotJSON, wantJSON)
 			}
 		})
@@ -538,6 +544,7 @@ func TestParseResponseBodyEdgeCases(t *testing.T) {
 			}`),
 			wantErr: false,
 			check: func(t *testing.T, resp *LLMResponse) {
+				t.Helper()
 				if resp.Content != "" {
 					t.Errorf("Content = %q, want empty string", resp.Content)
 				}
@@ -562,6 +569,7 @@ func TestParseResponseBodyEdgeCases(t *testing.T) {
 			}`),
 			wantErr: false,
 			check: func(t *testing.T, resp *LLMResponse) {
+				t.Helper()
 				if len(resp.ToolCalls) != 2 {
 					t.Errorf("ToolCalls length = %d, want 2", len(resp.ToolCalls))
 				}

@@ -108,7 +108,10 @@ func (p *Provider) Chat(
 	// present we route through the same streaming path (for API keys too) so
 	// text deltas can be surfaced. Absent a callback, API keys keep the
 	// unchanged single-shot Messages.New path.
-	streamCB, _ := options[common.TextDeltaOption].(common.TextDeltaFunc)
+	var streamCB common.TextDeltaFunc
+	if cb, ok := options[common.TextDeltaOption].(common.TextDeltaFunc); ok {
+		streamCB = cb
+	}
 
 	// OAuth/setup-tokens require streaming; API keys use non-streaming unless a
 	// delta callback opts them into streaming.
@@ -151,7 +154,11 @@ func (p *Provider) chatStreaming(
 ) (*LLMResponse, error) {
 	start := time.Now()
 	stream := p.client.Messages.NewStreaming(ctx, params, opts...)
-	defer stream.Close()
+	defer func() {
+		if closeErr := stream.Close(); closeErr != nil {
+			logger.DebugCF("anthropic", "closing stream", map[string]any{"error": closeErr.Error()})
+		}
+	}()
 
 	var msg anthropic.Message
 	for stream.Next() {
@@ -217,7 +224,9 @@ func (c *byteCounter) middleware(req *http.Request, next option.MiddlewareNext) 
 			if n, copyErr := io.Copy(io.Discard, body); copyErr == nil {
 				c.bytesSent.Add(n)
 			}
-			body.Close()
+			if closeErr := body.Close(); closeErr != nil {
+				logger.DebugCF("anthropic", "closing request body copy", map[string]any{"error": closeErr.Error()})
+			}
 		}
 	} else if req.ContentLength > 0 {
 		c.bytesSent.Add(req.ContentLength)
@@ -331,7 +340,7 @@ func buildParams(
 	apiModel := strings.ReplaceAll(model, ".", "-")
 
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(apiModel),
+		Model:     apiModel,
 		Messages:  anthropicMessages,
 		MaxTokens: maxTokens,
 	}
@@ -487,11 +496,15 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 		finishReason = "length"
 	case anthropic.StopReasonEndTurn:
 		finishReason = "stop"
+	default:
+		// Every other stop reason (stop_sequence, pause_turn, refusal,
+		// model_context_window_exceeded, …) keeps the "stop" set above; the raw
+		// value is still reported in DispatchStatus.StopReason.
 	}
 
 	status := &DispatchStatus{
 		Success:             true,
-		Model:               string(resp.Model),
+		Model:               resp.Model,
 		NumTurns:            1,
 		InputTokens:         int(resp.Usage.InputTokens),
 		OutputTokens:        int(resp.Usage.OutputTokens),

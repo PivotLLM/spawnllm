@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,7 +39,9 @@ func TestProviderChat_UsesMaxCompletionTokensForGLM(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -90,7 +93,9 @@ func TestProviderChat_ParsesToolCalls(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -136,7 +141,9 @@ func TestProviderChat_ParsesToolCallsWithObjectArguments(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -183,7 +190,9 @@ func TestProviderChat_ParsesReasoningContent(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -220,7 +229,9 @@ func TestProviderChat_PreservesReasoningContentInHistory(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -270,7 +281,9 @@ func TestProviderChat_JSONHTTPErrorDoesNotReportHTML(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":"bad request"}`))
+		if _, err := w.Write([]byte(`{"error":"bad request"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -319,7 +332,9 @@ func TestProviderChat_HTMLResponsesReturnHelpfulError(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", tt.contentType)
 				w.WriteHeader(tt.statusCode)
-				_, _ = w.Write([]byte(tt.body))
+				if _, err := w.Write([]byte(tt.body)); err != nil {
+					t.Errorf("write response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -375,7 +390,9 @@ func TestProviderChat_LargeHTMLResponsePreviewIsTruncated(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusBadGateway)
-		_, _ = w.Write(body)
+		if _, err := w.Write(body); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -409,7 +426,9 @@ func TestProviderChat_StripsMoonshotPrefixAndNormalizesKimiTemperature(t *testin
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -453,7 +472,9 @@ func TestProviderChat_DropParamsStripsFields(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -497,7 +518,9 @@ func TestProviderChat_NoDropParamsKeepsTemperature(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -563,7 +586,9 @@ func TestProviderChat_StripsProtocolPrefixes(t *testing.T) {
 					},
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(resp)
+				if err := json.NewEncoder(w).Encode(resp); err != nil {
+					t.Errorf("encode response: %v", err)
+				}
 			}))
 			defer server.Close()
 
@@ -616,7 +641,9 @@ func TestProviderChat_AcceptsNumericOptionTypes(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -731,7 +758,9 @@ func TestSerializeMessages_PlainText(t *testing.T) {
 	}
 
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if msgs[0]["content"] != "hello" {
 		t.Fatalf("expected plain string content, got %v", msgs[0]["content"])
@@ -747,9 +776,14 @@ func TestSerializeMessages_WithMedia(t *testing.T) {
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	content, ok := msgs[0]["content"].([]any)
 	if !ok {
@@ -759,16 +793,25 @@ func TestSerializeMessages_WithMedia(t *testing.T) {
 		t.Fatalf("expected 2 content parts, got %d", len(content))
 	}
 
-	textPart := content[0].(map[string]any)
+	textPart, ok := content[0].(map[string]any)
+	if !ok {
+		t.Fatalf("content[0] is %T, want an object", content[0])
+	}
 	if textPart["type"] != "text" || textPart["text"] != "describe this" {
 		t.Fatalf("text part mismatch: %v", textPart)
 	}
 
-	imgPart := content[1].(map[string]any)
+	imgPart, ok := content[1].(map[string]any)
+	if !ok {
+		t.Fatalf("content[1] is %T, want an object", content[1])
+	}
 	if imgPart["type"] != "image_url" {
 		t.Fatalf("expected image_url type, got %v", imgPart["type"])
 	}
-	imgURL := imgPart["image_url"].(map[string]any)
+	imgURL, ok := imgPart["image_url"].(map[string]any)
+	if !ok {
+		t.Fatalf("image_url is %T, want an object", imgPart["image_url"])
+	}
 	if imgURL["url"] != "data:image/png;base64,abc123" {
 		t.Fatalf("image url mismatch: %v", imgURL["url"])
 	}
@@ -780,9 +823,14 @@ func TestSerializeMessages_MediaWithToolCallID(t *testing.T) {
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if msgs[0]["tool_call_id"] != "call_1" {
 		t.Fatalf("tool_call_id not preserved with media, got %v", msgs[0]["tool_call_id"])
@@ -813,7 +861,9 @@ func chatWithCacheKey(t *testing.T, apiBase string) map[string]any {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -821,7 +871,11 @@ func chatWithCacheKey(t *testing.T, apiBase string) map[string]any {
 	p.apiBase = apiBase
 	p.httpClient = &http.Client{
 		Transport: roundTripperFunc(func(r *http.Request) (*http.Response, error) {
-			r.URL, _ = url.Parse(server.URL + r.URL.Path)
+			u, err := url.Parse(server.URL + r.URL.Path)
+			if err != nil {
+				return nil, err
+			}
+			r.URL = u
 			return http.DefaultTransport.RoundTrip(r)
 		}),
 	}
@@ -909,9 +963,14 @@ func TestSerializeMessages_OmitsContentWhenEmptyAndToolCallsPresent(t *testing.T
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if _, ok := msgs[0]["content"]; ok {
 		t.Fatalf("content should be omitted when empty and tool_calls present, got %v", msgs[0]["content"])
@@ -933,9 +992,14 @@ func TestSerializeMessages_IncludesContentWhenNonEmptyWithToolCalls(t *testing.T
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if msgs[0]["content"] != "thinking..." {
 		t.Fatalf("content should be preserved when non-empty, got %v", msgs[0]["content"])
@@ -954,7 +1018,10 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	raw := string(data)
 	if strings.Contains(raw, "system_parts") {
 		t.Fatal("system_parts should not appear in serialized output")
@@ -968,9 +1035,14 @@ func TestSerializeMessages_StrictCompat_StripsReasoningContent(t *testing.T) {
 	}
 	result := serializeMessages(messages, true)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if _, ok := msgs[1]["reasoning_content"]; ok {
 		t.Fatalf("reasoning_content should be stripped when strictCompat=true, got %v", msgs[1]["reasoning_content"])
@@ -1004,7 +1076,10 @@ func TestSerializeMessages_StrictCompat_StripsExtraContent(t *testing.T) {
 	}
 	result := serializeMessages(messages, true)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	raw := string(data)
 	if strings.Contains(raw, "extra_content") {
 		t.Fatalf("extra_content should be stripped when strictCompat=true, got: %s", raw)
@@ -1034,7 +1109,10 @@ func TestSerializeMessages_StrictCompat_StripsThoughtSignature(t *testing.T) {
 	}
 	result := serializeMessages(messages, true)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	raw := string(data)
 	if strings.Contains(raw, "thought_signature") {
 		t.Fatalf("thought_signature should be stripped when strictCompat=true, got: %s", raw)
@@ -1070,7 +1148,10 @@ func TestSerializeMessages_NoStrictCompat_PreservesFields(t *testing.T) {
 	}
 	result := serializeMessages(messages, false)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	raw := string(data)
 	if !strings.Contains(raw, "my reasoning") {
 		t.Fatalf("reasoning_content should be preserved when strictCompat=false, got: %s", raw)
@@ -1102,9 +1183,15 @@ func TestProviderChat_PopulatesDispatchStatus(t *testing.T) {
 
 	var receivedRequestBody []byte
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		receivedRequestBody, _ = io.ReadAll(r.Body)
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Errorf("read request: %v", err)
+		}
+		receivedRequestBody = body
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(respBody))
+		if _, err := w.Write([]byte(respBody)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1197,7 +1284,9 @@ func TestProviderChat_OmitsRequireParametersForNonOpenRouter(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1259,7 +1348,9 @@ func TestProviderChat_OmitsProviderObjectWhenNoTools(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1314,7 +1405,9 @@ func TestRequestBodyLogging_PairsWithResponse(t *testing.T) {
 	respBody := `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, respBody)
+		if _, err := io.WriteString(w, respBody); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1372,7 +1465,9 @@ func TestRequestBodyLogging_PairsWithResponse(t *testing.T) {
 func TestRequestBodyLogging_RedactsAPIKey(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`)
+		if _, err := io.WriteString(w, `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1412,7 +1507,10 @@ func TestRequestBodyLogging_RedactsAPIKey(t *testing.T) {
 	}
 
 	// Bearer Authorization header must never appear in the log either.
-	raw, _ := os.ReadFile(logPath)
+	raw, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", logPath, err)
+	}
 	if bytes.Contains(raw, []byte("super-secret-key")) {
 		t.Errorf("bearer key should never appear in log; got:\n%s", raw)
 	}
@@ -1424,7 +1522,9 @@ func TestRequestBodyLogging_RedactsAPIKey(t *testing.T) {
 func TestRequestBodyLogging_NoOpWhenUnset(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`)
+		if _, err := io.WriteString(w, `{"choices":[{"message":{"content":"hi"},"finish_reason":"stop"}]}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1447,7 +1547,9 @@ func TestRequestBodyLogging_NoOpWhenUnset(t *testing.T) {
 func TestRequestBodyLogging_NonBlockingOnWriteError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		if _, err := io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1463,9 +1565,7 @@ func TestRequestBodyLogging_NonBlockingOnWriteError(t *testing.T) {
 	prev := warnFn
 	warnFn = func(component, message string, fields map[string]any) {
 		copied := make(map[string]any, len(fields))
-		for k, v := range fields {
-			copied[k] = v
-		}
+		maps.Copy(copied, fields)
 		warns = append(warns, warnRecord{component, message, copied})
 	}
 	t.Cleanup(func() { warnFn = prev })
@@ -1489,7 +1589,7 @@ func TestRequestBodyLogging_NonBlockingOnWriteError(t *testing.T) {
 
 	// Two more calls; both should succeed, and the provider should emit
 	// at most one WRN total.
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "after-close"}}, nil, "test-model", nil); err != nil {
 			t.Fatalf("Chat #%d after close: error = %v", i+2, err)
 		}
@@ -1519,7 +1619,9 @@ func TestResponseLogFile_LogsErrorResponses(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		io.WriteString(w, errBody)
+		if _, err := io.WriteString(w, errBody); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1551,9 +1653,11 @@ func TestReasoningEffort_AddedToRequestBody(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}, "finish_reason": "stop"}},
-		})
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1561,7 +1665,7 @@ func TestReasoningEffort_AddedToRequestBody(t *testing.T) {
 	if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "grok-3", nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if got, _ := captured["reasoning_effort"].(string); got != "high" {
+	if got, ok := captured["reasoning_effort"].(string); !ok || got != "high" {
 		t.Errorf("reasoning_effort = %v, want high; body=%v", captured["reasoning_effort"], captured)
 	}
 }
@@ -1569,11 +1673,15 @@ func TestReasoningEffort_AddedToRequestBody(t *testing.T) {
 func TestReasoningEffort_OmittedWhenEmpty(t *testing.T) {
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&captured)
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}, "finish_reason": "stop"}},
-		})
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1589,11 +1697,15 @@ func TestReasoningEffort_OmittedWhenEmpty(t *testing.T) {
 func TestExtraBody_MergedIntoRequest(t *testing.T) {
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&captured)
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}, "finish_reason": "stop"}},
-		})
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1624,11 +1736,15 @@ func TestExtraBody_MergedIntoRequest(t *testing.T) {
 func TestExtraBody_CollisionLogsAndDoesNotOverwrite(t *testing.T) {
 	var captured map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&captured)
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"choices": []map[string]any{{"message": map[string]any{"content": "ok"}, "finish_reason": "stop"}},
-		})
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -1641,9 +1757,7 @@ func TestExtraBody_CollisionLogsAndDoesNotOverwrite(t *testing.T) {
 	prev := warnFn
 	warnFn = func(component, message string, fields map[string]any) {
 		copied := make(map[string]any, len(fields))
-		for k, v := range fields {
-			copied[k] = v
-		}
+		maps.Copy(copied, fields)
 		warns = append(warns, warnRecord{component, message, copied})
 	}
 	t.Cleanup(func() { warnFn = prev })
@@ -1685,7 +1799,9 @@ func TestExtraBody_CollisionLogsAndDoesNotOverwrite(t *testing.T) {
 func TestResponseLogFile_OpenFailureDoesNotPropagate(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)
+		if _, err := io.WriteString(w, `{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 

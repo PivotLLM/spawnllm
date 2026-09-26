@@ -11,7 +11,7 @@ import (
 
 // --- Server-Sent Events (SSE) parsing ---
 
-// sseData reads one SSE `data:` payload at a time from r. It skips blank lines
+// SSEReader reads one SSE `data:` payload at a time from r. It skips blank lines
 // and comment lines (those beginning with ':'), and strips the single optional
 // space after "data:". Multi-line data fields are joined with '\n' per the SSE
 // spec, flushed at the dispatching blank line. It returns io.EOF when the
@@ -52,8 +52,7 @@ func (s *SSEReader) Next() (string, bool, error) {
 		if strings.HasPrefix(line, ":") {
 			continue
 		}
-		if strings.HasPrefix(line, "data:") {
-			payload := strings.TrimPrefix(line, "data:")
+		if payload, ok := strings.CutPrefix(line, "data:"); ok {
 			payload = strings.TrimPrefix(payload, " ")
 			if s.have {
 				s.pending.WriteByte('\n')

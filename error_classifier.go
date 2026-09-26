@@ -165,7 +165,7 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	}
 
 	// Context cancellation: user abort, never fallback.
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 
@@ -182,8 +182,7 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	// Structured HTTP status error from common.HandleErrorResponse. Carries
 	// the Retry-After hint so the fallback chain can size its cooldown to
 	// the server's suggestion instead of the default exponential backoff.
-	var statusErr *common.HTTPStatusError
-	if errors.As(err, &statusErr) {
+	if statusErr, ok := errors.AsType[*common.HTTPStatusError](err); ok {
 		// Structured billing markers in the body override status-based
 		// classification. OpenAI returns insufficient_quota with HTTP 429
 		// — without this check, the request would be treated as a transient
@@ -207,6 +206,20 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		if !matchesAny(bodyLower, contextLimitPatterns) && matchesAny(bodyLower, limitExceededPatterns) {
 			return &FailoverError{
 				Reason:     FailoverRateLimit,
+				Provider:   provider,
+				Model:      model,
+				Status:     statusErr.StatusCode,
+				RetryAfter: statusErr.RetryAfter,
+				Wrapped:    err,
+			}
+		}
+		// Context overflow arrives as HTTP 400 from OpenAI-compatible endpoints
+		// ("context_length_exceeded") and Anthropic ("prompt is too long"). The
+		// status alone would classify it as a format error and lose the turn;
+		// the body says what it really is, so check that before the status.
+		if matchesAny(bodyLower, contextLimitPatterns) {
+			return &FailoverError{
+				Reason:     FailoverContextLimit,
 				Provider:   provider,
 				Model:      model,
 				Status:     statusErr.StatusCode,

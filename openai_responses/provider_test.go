@@ -23,13 +23,28 @@ func captureServer(t *testing.T, reply string, opts ...Option) (*Provider, *map[
 		if r.URL.Path != "/responses" {
 			t.Errorf("path = %q, want /responses", r.URL.Path)
 		}
-		_ = json.NewDecoder(r.Body).Decode(&captured)
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(reply))
+		if _, err := w.Write([]byte(reply)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	p := NewProvider("k", srv.URL, "", opts...)
 	return p, &captured
+}
+
+// asType returns v as a T, failing the test when it has another type. what
+// names the value in the failure message.
+func asType[T any](t *testing.T, v any, what string) T {
+	t.Helper()
+	got, ok := v.(T)
+	if !ok {
+		t.Fatalf("%s is %T, want %T", what, v, got)
+	}
+	return got
 }
 
 func TestChat_TextResponse(t *testing.T) {
@@ -61,15 +76,15 @@ func TestChat_TextResponse(t *testing.T) {
 	if _, ok := (*body)["messages"]; ok {
 		t.Error("must not send chat-style 'messages'")
 	}
-	input, _ := (*body)["input"].([]any)
+	input := asType[[]any](t, (*body)["input"], "input")
 	if len(input) != 1 {
 		t.Fatalf("input len = %d, want 1 (user only)", len(input))
 	}
-	first, _ := input[0].(map[string]any)
+	first := asType[map[string]any](t, input[0], "input[0]")
 	if first["role"] != "user" || first["content"] != "hi" {
 		t.Errorf("input[0] = %v", first)
 	}
-	if mot, _ := (*body)["max_output_tokens"].(float64); mot != 256 {
+	if mot, ok := (*body)["max_output_tokens"].(float64); !ok || mot != 256 {
 		t.Errorf("max_output_tokens = %v, want 256", (*body)["max_output_tokens"])
 	}
 }
@@ -102,11 +117,11 @@ func TestChat_ToolCallResponse(t *testing.T) {
 	}
 
 	// Tools flattened to Responses shape (no nested "function" wrapper).
-	toolsBody, _ := (*body)["tools"].([]any)
+	toolsBody := asType[[]any](t, (*body)["tools"], "tools")
 	if len(toolsBody) != 1 {
 		t.Fatalf("tools len = %d", len(toolsBody))
 	}
-	td, _ := toolsBody[0].(map[string]any)
+	td := asType[map[string]any](t, toolsBody[0], "tools[0]")
 	if td["type"] != "function" || td["name"] != "get_weather" {
 		t.Errorf("tool def = %v", td)
 	}
@@ -128,16 +143,16 @@ func TestChat_ToolHistoryReplay(t *testing.T) {
 		t.Fatalf("Chat error: %v", err)
 	}
 
-	input, _ := (*body)["input"].([]any)
+	input := asType[[]any](t, (*body)["input"], "input")
 	// user message, function_call item, function_call_output item
 	if len(input) != 3 {
 		t.Fatalf("input len = %d, want 3; got %v", len(input), input)
 	}
-	fc, _ := input[1].(map[string]any)
+	fc := asType[map[string]any](t, input[1], "input[1]")
 	if fc["type"] != "function_call" || fc["call_id"] != "call_1" || fc["name"] != "get_weather" {
 		t.Errorf("function_call item = %v", fc)
 	}
-	fco, _ := input[2].(map[string]any)
+	fco := asType[map[string]any](t, input[2], "input[2]")
 	if fco["type"] != "function_call_output" || fco["call_id"] != "call_1" || fco["output"] != "sunny" {
 		t.Errorf("function_call_output item = %v", fco)
 	}
@@ -153,8 +168,8 @@ func TestChat_JSONObjectFormat(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
-	text, _ := (*body)["text"].(map[string]any)
-	format, _ := text["format"].(map[string]any)
+	text := asType[map[string]any](t, (*body)["text"], "text")
+	format := asType[map[string]any](t, text["format"], "text.format")
 	if format["type"] != "json_object" {
 		t.Errorf("text.format = %v, want json_object", text)
 	}
@@ -183,7 +198,7 @@ func TestChat_ReasoningEffort(t *testing.T) {
 	if _, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "x"}}, nil, "gpt-5", nil); err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
-	reasoning, _ := (*body)["reasoning"].(map[string]any)
+	reasoning := asType[map[string]any](t, (*body)["reasoning"], "reasoning")
 	if reasoning["effort"] != "high" {
 		t.Errorf("reasoning = %v, want effort=high", reasoning)
 	}
@@ -221,7 +236,9 @@ func TestChat_DropParams(t *testing.T) {
 func TestChat_HTTPError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = w.Write([]byte(`{"error":{"message":"bad"}}`))
+		if _, err := w.Write([]byte(`{"error":{"message":"bad"}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer srv.Close()
 	p := NewProvider("k", srv.URL, "")
@@ -251,7 +268,9 @@ func TestChat_TemperatureGatedByReasoning(t *testing.T) {
 
 	// Non-reasoning: temperature sent, no include.
 	p, body := captureServer(t, reply)
-	_, _ = p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5", map[string]any{"temperature": 0.7})
+	if _, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5", map[string]any{"temperature": 0.7}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
 	if _, ok := (*body)["temperature"]; !ok {
 		t.Error("non-reasoning: temperature should be sent")
 	}
@@ -261,18 +280,22 @@ func TestChat_TemperatureGatedByReasoning(t *testing.T) {
 
 	// Reasoning level: temperature dropped, encrypted reasoning requested.
 	p, body = captureServer(t, reply, WithReasoningEffort("high"))
-	_, _ = p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "o3", map[string]any{"temperature": 0.7})
+	if _, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "o3", map[string]any{"temperature": 0.7}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
 	if _, ok := (*body)["temperature"]; ok {
 		t.Error("reasoning: temperature must be dropped")
 	}
-	inc, _ := (*body)["include"].([]any)
+	inc := asType[[]any](t, (*body)["include"], "include")
 	if len(inc) != 1 || inc[0] != "reasoning.encrypted_content" {
 		t.Errorf("reasoning: include = %v", (*body)["include"])
 	}
 
 	// effort "none" = reasoning disabled: temperature kept, no include.
 	p, body = captureServer(t, reply, WithReasoningEffort("none"))
-	_, _ = p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5", map[string]any{"temperature": 0.7})
+	if _, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5", map[string]any{"temperature": 0.7}); err != nil {
+		t.Fatalf("Chat: %v", err)
+	}
 	if _, ok := (*body)["temperature"]; !ok {
 		t.Error(`effort "none": temperature should be sent`)
 	}
@@ -302,8 +325,10 @@ func TestBuildInput_ReplaysReasoningBeforeToolCall(t *testing.T) {
 	ri := json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"ENC"}`)
 	msgs := []Message{
 		{Role: "user", Content: "q"},
-		{Role: "assistant", ResponsesReasoning: []json.RawMessage{ri},
-			ToolCalls: []ToolCall{{ID: "call_1", Function: &FunctionCall{Name: "f", Arguments: "{}"}}}},
+		{
+			Role: "assistant", ResponsesReasoning: []json.RawMessage{ri},
+			ToolCalls: []ToolCall{{ID: "call_1", Function: &FunctionCall{Name: "f", Arguments: "{}"}}},
+		},
 		{Role: "tool", ToolCallID: "call_1", Content: "result"},
 	}
 	_, input := buildInput(msgs)

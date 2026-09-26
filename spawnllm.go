@@ -2,14 +2,16 @@ package spawnllm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
+
+	"github.com/PivotLLM/toolspec"
 
 	anthropicmessages "github.com/PivotLLM/spawnllm/anthropic_messages"
 	"github.com/PivotLLM/spawnllm/azure"
 	"github.com/PivotLLM/spawnllm/openai_compat"
 	"github.com/PivotLLM/spawnllm/openai_responses"
-	"github.com/PivotLLM/toolspec"
 )
 
 // ProviderSpec is a host-resolved description of one LLM endpoint. The host
@@ -154,7 +156,7 @@ func New(opts ...Option) (*Worker, error) {
 		}
 	}
 	if w.provider == nil {
-		return nil, fmt.Errorf("spawnllm: no provider configured (use WithProvider or WithProviderInstance)")
+		return nil, errors.New("spawnllm: no provider configured (use WithProvider or WithProviderInstance)")
 	}
 	return w, nil
 }

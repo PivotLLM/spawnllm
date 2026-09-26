@@ -21,7 +21,11 @@ type CodexCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *CodexCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewCodexCliProvider creates a new Codex CLI provider.
 // When command is empty, it defaults to "codex".
@@ -57,7 +61,7 @@ func (p *CodexCliProvider) Chat(
 	ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) (*LLMResponse, error) {
 	if p.command == "" {
-		return nil, fmt.Errorf("codex command not configured")
+		return nil, errors.New("codex command not configured")
 	}
 
 	if p.timeout > 0 {
@@ -86,23 +90,22 @@ func (p *CodexCliProvider) Chat(
 	}
 	args = append(args, StdinArg) // read prompt from stdin
 
-	cmd := exec.CommandContext(ctx, p.command, args...)
+	cmd := newCLICommand(ctx, p.command, args...)
 	if p.workspace != "" {
 		cmd.Dir = p.workspace
 	}
 	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	cmd.Env = applyProviderEnv(p.baseEnv, p.env)
 
 	bytesSent := int64(len(prompt))
-	start := time.Now()
-	runErr := cmd.Run()
-	elapsed := time.Since(start)
+	run, runErr := runCLI(ctx, cmd)
+	stdout, stderr, elapsed := run.stdout, run.stderr, run.elapsed
 	durationMs := elapsed.Milliseconds()
-	bytesReceived := int64(stdout.Len())
+	bytesReceived := stdout.Received()
+	if errors.Is(runErr, errCLIOutputCapExceeded) {
+		return cliErrorResponse(model, "output_cap", elapsed, bytesSent, bytesReceived),
+			fmt.Errorf("codex cli: %w", runErr)
+	}
 
 	// Parse JSONL from stdout even if exit code is non-zero,
 	// because codex writes diagnostic noise to stderr (e.g. rollout errors)
@@ -127,8 +130,7 @@ func (p *CodexCliProvider) Chat(
 			return cliErrorResponse(model, "canceled", elapsed, bytesSent, bytesReceived), ctx.Err()
 		}
 		exitCode := -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			exitCode = exitErr.ExitCode()
 		}
 		stderrStr := strings.TrimSpace(stderr.String())

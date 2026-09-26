@@ -57,7 +57,10 @@ func TestParseJSONLEvents_PassesThroughToolCallText(t *testing.T) {
 		Type: "item.completed",
 		Item: &codexEventItem{ID: "item_1", Type: "agent_message", Text: toolCallText},
 	}
-	itemJSON, _ := json.Marshal(item)
+	itemJSON, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	events := `{"type":"turn.started"}` + "\n" + string(itemJSON) + "\n" + `{"type":"turn.completed"}`
 
 	resp, err := p.parseJSONLEvents(events, "test-model", 100)
@@ -373,7 +376,7 @@ func createMockCodexCLI(t *testing.T, events []string) string {
 	var sb strings.Builder
 	sb.WriteString("#!/bin/bash\n")
 	for _, event := range events {
-		sb.WriteString(fmt.Sprintf("echo '%s'\n", event))
+		fmt.Fprintf(&sb, "echo '%s'\n", event)
 	}
 
 	if err := os.WriteFile(scriptPath, []byte(sb.String()), 0o755); err != nil {

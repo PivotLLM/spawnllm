@@ -1,12 +1,9 @@
 package spawnllm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -27,7 +24,11 @@ type AntigravityCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *AntigravityCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewAntigravityCliProvider creates a new Antigravity CLI provider.
 // When command is empty, it defaults to "agy".
@@ -62,12 +63,6 @@ func NewAntigravityCliProviderWithTimeout(command, workspace string, timeout tim
 func (p *AntigravityCliProvider) Chat(
 	ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) (*LLMResponse, error) {
-	if p.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.timeout)
-		defer cancel()
-	}
-
 	// CLI providers run their own internal agentic loop and return one final
 	// answer per invocation. The `tools` parameter is intentionally ignored:
 	// the CLI cannot use claw's host-side tools by writing JSON in its prose
@@ -98,102 +93,18 @@ func (p *AntigravityCliProvider) Chat(
 		args = append(args, "--model", model)
 	}
 
-	cmd := exec.CommandContext(ctx, p.command, args...)
-	if p.workspace != "" {
-		cmd.Dir = p.workspace
-	}
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	bytesSent := int64(len(prompt))
-	started := time.Now()
-	runErr := cmd.Run()
-	elapsed := time.Since(started)
-	bytesReceived := int64(stdout.Len())
-
-	if runErr != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return cliErrorResponse(model, "timeout", elapsed, bytesSent, bytesReceived),
-				fmt.Errorf("antigravity cli timed out after %s: %w", p.timeout, context.DeadlineExceeded)
-		}
-		if ctx.Err() == context.Canceled {
-			return cliErrorResponse(model, "canceled", elapsed, bytesSent, bytesReceived), ctx.Err()
-		}
-
-		// Attempt to parse stdout before treating as error — the CLI may exit
-		// non-zero but still write a valid JSON response to stdout.
-		if stdoutStr := strings.TrimSpace(stdout.String()); stdoutStr != "" {
-			if resp, parseErr := p.parseAntigravityCliResponse(stdoutStr); parseErr == nil && resp.Content != "" {
-				exitCode := -1
-				var exitErr *exec.ExitError
-				if errors.As(runErr, &exitErr) {
-					exitCode = exitErr.ExitCode()
-				}
-				if resp.Status != nil {
-					resp.Status.BytesSent = bytesSent
-					resp.Status.BytesReceived = bytesReceived
-				}
-				logger.WarnCF("provider", "antigravity-cli exited non-zero but returned valid content",
-					map[string]any{"exit_code": exitCode})
-				return resp, nil
-			}
-		}
-
-		exitCode := -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		stderrStr := strings.TrimSpace(stderr.String())
-		stdoutStr := strings.TrimSpace(stdout.String())
-		fields := map[string]any{
-			"agent_id":  AgentIDFromContext(ctx),
-			"exit_code": exitCode,
-		}
-		if logger.GetLogMessageContent() {
-			fields["stderr"] = stderrStr
-			fields["stdout"] = stdoutStr
-		}
-		logger.ErrorCF("provider", "antigravity-cli subprocess failed", fields)
-		errResp := cliErrorResponse(model, "error", elapsed, bytesSent, bytesReceived)
-		switch {
-		case stderrStr != "" && stdoutStr != "":
-			return errResp, fmt.Errorf("antigravity cli error: %w\nstderr: %s\nstdout: %s", runErr, stderrStr, stdoutStr)
-		case stderrStr != "":
-			return errResp, fmt.Errorf("antigravity cli error: %s", stderrStr)
-		case stdoutStr != "":
-			return errResp, fmt.Errorf("antigravity cli error: %w\noutput: %s", runErr, stdoutStr)
-		default:
-			return errResp, fmt.Errorf("antigravity cli error: %w", runErr)
-		}
-	}
-
-	// Log non-empty stderr on successful exit.
-	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
-		logger.WarnCF("provider", "antigravity-cli wrote to stderr on successful exit",
-			map[string]any{"stderr": stderrStr})
-	}
-
-	resp, parseErr := p.parseAntigravityCliResponse(stdout.String())
-	if parseErr != nil {
-		return cliErrorResponse(model, "parse_error", elapsed, bytesSent, bytesReceived), parseErr
-	}
-	if resp.Status != nil {
-		resp.Status.BytesSent = bytesSent
-		resp.Status.BytesReceived = bytesReceived
-	}
-	if resp.Content == "" {
-		warnFields := map[string]any{}
-		if logger.GetLogMessageContent() {
-			warnFields["raw_stdout"] = strings.TrimSpace(stdout.String())
-		}
-		logger.WarnCF("provider", "antigravity-cli returned empty content", warnFields)
-	}
-	return resp, nil
+	return runJSONCLI(ctx, &jsonCLICall{
+		label:     "antigravity",
+		command:   p.command,
+		workspace: p.workspace,
+		timeout:   p.timeout,
+		args:      args,
+		prompt:    prompt,
+		baseEnv:   p.baseEnv,
+		env:       p.env,
+		model:     model,
+		parse:     p.parseAntigravityCliResponse,
+	})
 }
 
 // GetDefaultModel returns the default model identifier.

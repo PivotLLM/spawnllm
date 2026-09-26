@@ -19,11 +19,15 @@ func sseAzureServer(t *testing.T, body string, captured *map[string]any) *httpte
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if captured != nil {
-			_ = json.NewDecoder(r.Body).Decode(captured)
+			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(body))
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -44,7 +48,7 @@ func TestChat_StreamingText(t *testing.T) {
 	p := NewProvider("k", srv.URL, "")
 	out, err := p.Chat(context.Background(),
 		[]Message{{Role: "user", Content: "hi"}}, nil, "gpt-4o-deployment",
-		map[string]any{common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) })})
+		map[string]any{common.TextDeltaOption: func(d string) { deltas = append(deltas, d) }})
 	if err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
@@ -87,7 +91,7 @@ func TestChat_StreamingToolCall(t *testing.T) {
 	p := NewProvider("k", srv.URL, "")
 	out, err := p.Chat(context.Background(),
 		[]Message{{Role: "user", Content: "weather?"}}, nil, "gpt-4o-deployment",
-		map[string]any{common.TextDeltaOption: common.TextDeltaFunc(func(string) {})})
+		map[string]any{common.TextDeltaOption: func(string) {}})
 	if err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
@@ -115,7 +119,7 @@ func TestChat_StreamingError(t *testing.T) {
 	p := NewProvider("k", srv.URL, "")
 	out, err := p.Chat(context.Background(),
 		[]Message{{Role: "user", Content: "hi"}}, nil, "gpt-4o-deployment",
-		map[string]any{common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) })})
+		map[string]any{common.TextDeltaOption: func(d string) { deltas = append(deltas, d) }})
 	if err == nil {
 		t.Fatalf("expected error from in-band error chunk")
 	}
@@ -135,9 +139,13 @@ func TestChat_NonStreamingWhenNoCallback(t *testing.T) {
 	var reqBody map[string]any
 	reply := `{"model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(reply))
+		if _, err := w.Write([]byte(reply)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 

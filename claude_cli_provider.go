@@ -1,12 +1,9 @@
 package spawnllm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 
@@ -20,7 +17,11 @@ type ClaudeCliProvider struct {
 	timeout   time.Duration
 	extraArgs []string
 	env       map[string]string
+	baseEnv   []string
 }
+
+// SetBaseEnv implements BaseEnvSetter.
+func (p *ClaudeCliProvider) SetBaseEnv(env []string) { p.baseEnv = env }
 
 // NewClaudeCliProvider creates a new Claude CLI provider.
 // When command is empty, it defaults to "claude".
@@ -55,12 +56,6 @@ func NewClaudeCliProviderWithTimeout(command, workspace string, timeout time.Dur
 func (p *ClaudeCliProvider) Chat(
 	ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) (*LLMResponse, error) {
-	if p.timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, p.timeout)
-		defer cancel()
-	}
-
 	// CLI providers run their own internal agentic loop and return one final
 	// answer per invocation. The `tools` parameter is intentionally ignored:
 	// the CLI cannot use claw's host-side tools by writing JSON in its prose
@@ -78,102 +73,18 @@ func (p *ClaudeCliProvider) Chat(
 	}
 	args = append(args, StdinArg) // read from stdin
 
-	cmd := exec.CommandContext(ctx, p.command, args...)
-	if p.workspace != "" {
-		cmd.Dir = p.workspace
-	}
-	cmd.Stdin = bytes.NewReader([]byte(prompt))
-	cmd.Env = applyProviderEnv(p.env)
-
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	bytesSent := int64(len(prompt))
-	started := time.Now()
-	runErr := cmd.Run()
-	elapsed := time.Since(started)
-	bytesReceived := int64(stdout.Len())
-
-	if runErr != nil {
-		if ctx.Err() == context.DeadlineExceeded {
-			return cliErrorResponse(model, "timeout", elapsed, bytesSent, bytesReceived),
-				fmt.Errorf("claude cli timed out after %s: %w", p.timeout, context.DeadlineExceeded)
-		}
-		if ctx.Err() == context.Canceled {
-			return cliErrorResponse(model, "canceled", elapsed, bytesSent, bytesReceived), ctx.Err()
-		}
-
-		// Attempt to parse stdout before treating as error — claude CLI may exit non-zero
-		// but still write a valid JSON response to stdout.
-		if stdoutStr := strings.TrimSpace(stdout.String()); stdoutStr != "" {
-			if resp, parseErr := p.parseClaudeCliResponse(stdoutStr); parseErr == nil && resp.Content != "" {
-				exitCode := -1
-				var exitErr *exec.ExitError
-				if errors.As(runErr, &exitErr) {
-					exitCode = exitErr.ExitCode()
-				}
-				if resp.Status != nil {
-					resp.Status.BytesSent = bytesSent
-					resp.Status.BytesReceived = bytesReceived
-				}
-				logger.WarnCF("provider", "claude-cli exited non-zero but returned valid content",
-					map[string]any{"exit_code": exitCode})
-				return resp, nil
-			}
-		}
-
-		exitCode := -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
-			exitCode = exitErr.ExitCode()
-		}
-		stderrStr := strings.TrimSpace(stderr.String())
-		stdoutStr := strings.TrimSpace(stdout.String())
-		fields := map[string]any{
-			"agent_id":  AgentIDFromContext(ctx),
-			"exit_code": exitCode,
-		}
-		if logger.GetLogMessageContent() {
-			fields["stderr"] = stderrStr
-			fields["stdout"] = stdoutStr
-		}
-		logger.ErrorCF("provider", "claude-cli subprocess failed", fields)
-		errResp := cliErrorResponse(model, "error", elapsed, bytesSent, bytesReceived)
-		switch {
-		case stderrStr != "" && stdoutStr != "":
-			return errResp, fmt.Errorf("claude cli error: %w\nstderr: %s\nstdout: %s", runErr, stderrStr, stdoutStr)
-		case stderrStr != "":
-			return errResp, fmt.Errorf("claude cli error: %s", stderrStr)
-		case stdoutStr != "":
-			return errResp, fmt.Errorf("claude cli error: %w\noutput: %s", runErr, stdoutStr)
-		default:
-			return errResp, fmt.Errorf("claude cli error: %w", runErr)
-		}
-	}
-
-	// Log non-empty stderr on successful exit.
-	if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
-		logger.WarnCF("provider", "claude-cli wrote to stderr on successful exit",
-			map[string]any{"stderr": stderrStr})
-	}
-
-	resp, parseErr := p.parseClaudeCliResponse(stdout.String())
-	if parseErr != nil {
-		return cliErrorResponse(model, "parse_error", elapsed, bytesSent, bytesReceived), parseErr
-	}
-	if resp.Status != nil {
-		resp.Status.BytesSent = bytesSent
-		resp.Status.BytesReceived = bytesReceived
-	}
-	if resp.Content == "" {
-		warnFields := map[string]any{}
-		if logger.GetLogMessageContent() {
-			warnFields["raw_stdout"] = strings.TrimSpace(stdout.String())
-		}
-		logger.WarnCF("provider", "claude-cli returned empty content", warnFields)
-	}
-	return resp, nil
+	return runJSONCLI(ctx, &jsonCLICall{
+		label:     "claude",
+		command:   p.command,
+		workspace: p.workspace,
+		timeout:   p.timeout,
+		args:      args,
+		prompt:    prompt,
+		baseEnv:   p.baseEnv,
+		env:       p.env,
+		model:     model,
+		parse:     p.parseClaudeCliResponse,
+	})
 }
 
 // cliErrorResponse builds an LLMResponse whose Status records a failed CLI dispatch

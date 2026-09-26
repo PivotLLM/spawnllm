@@ -60,9 +60,14 @@ func TestSerializeMessages_PlainText(t *testing.T) {
 	}
 	result := SerializeMessages(messages)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if msgs[0]["content"] != "hello" {
 		t.Errorf("expected plain string content, got %v", msgs[0]["content"])
@@ -78,9 +83,14 @@ func TestSerializeMessages_WithMedia(t *testing.T) {
 	}
 	result := SerializeMessages(messages)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	content, ok := msgs[0]["content"].([]any)
 	if !ok {
@@ -97,9 +107,14 @@ func TestSerializeMessages_MediaWithToolCallID(t *testing.T) {
 	}
 	result := SerializeMessages(messages)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	var msgs []map[string]any
-	json.Unmarshal(data, &msgs)
+	if err := json.Unmarshal(data, &msgs); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
 
 	if msgs[0]["tool_call_id"] != "call_1" {
 		t.Errorf("tool_call_id not preserved, got %v", msgs[0]["tool_call_id"])
@@ -118,7 +133,10 @@ func TestSerializeMessages_StripsSystemParts(t *testing.T) {
 	}
 	result := SerializeMessages(messages)
 
-	data, _ := json.Marshal(result)
+	data, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	if strings.Contains(string(data), "system_parts") {
 		t.Error("system_parts should not appear in serialized output")
 	}
@@ -258,7 +276,9 @@ func TestHandleErrorResponse_JSONError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		w.Write([]byte(`{"error":"bad request"}`))
+		if _, err := w.Write([]byte(`{"error":"bad request"}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -266,7 +286,11 @@ func TestHandleErrorResponse_JSONError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	err = HandleErrorResponse(resp, server.URL)
 	if err == nil {
 		t.Fatal("expected error")
@@ -283,7 +307,9 @@ func TestHandleErrorResponse_HTMLError(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusBadGateway)
-		w.Write([]byte("<!DOCTYPE html><html><body>bad gateway</body></html>"))
+		if _, err := w.Write([]byte("<!DOCTYPE html><html><body>bad gateway</body></html>")); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -291,7 +317,11 @@ func TestHandleErrorResponse_HTMLError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	err = HandleErrorResponse(resp, server.URL)
 	if err == nil {
 		t.Fatal("expected error")
@@ -306,7 +336,9 @@ func TestHandleErrorResponse_HTMLError(t *testing.T) {
 func TestReadAndParseResponse_ValidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`))
+		if _, err := w.Write([]byte(`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -314,7 +346,11 @@ func TestReadAndParseResponse_ValidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	out, err := ReadAndParseResponse(resp, server.URL, nil)
 	if err != nil {
 		t.Fatalf("ReadAndParseResponse() error = %v", err)
@@ -327,7 +363,9 @@ func TestReadAndParseResponse_ValidJSON(t *testing.T) {
 func TestReadAndParseResponse_HTMLResponse(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		w.Write([]byte("<!DOCTYPE html><html><body>login page</body></html>"))
+		if _, err := w.Write([]byte("<!DOCTYPE html><html><body>login page</body></html>")); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -335,7 +373,11 @@ func TestReadAndParseResponse_HTMLResponse(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	_, err = ReadAndParseResponse(resp, server.URL, nil)
 	if err == nil {
 		t.Fatal("expected error for HTML response")
@@ -504,7 +546,11 @@ func TestHandleErrorResponse_EmptyBody(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	err = HandleErrorResponse(resp, server.URL)
 	if err == nil {
 		t.Fatal("expected error")
@@ -519,7 +565,9 @@ func TestHandleErrorResponse_EmptyBody(t *testing.T) {
 func TestReadAndParseResponse_InvalidJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte("not valid json"))
+		if _, err := w.Write([]byte("not valid json")); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -527,7 +575,11 @@ func TestReadAndParseResponse_InvalidJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("http.Get() error = %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Errorf("close response body: %v", closeErr)
+		}
+	}()
 	_, err = ReadAndParseResponse(resp, server.URL, nil)
 	if err == nil {
 		t.Fatal("expected error for invalid JSON")
@@ -725,7 +777,10 @@ func TestParseResponse_ContentSniff_Reject_WrongShape(t *testing.T) {
 					},
 				},
 			}
-			raw, _ := json.Marshal(payload)
+			raw, err := json.Marshal(payload)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
 			names := map[string]struct{}{"get_weather": {}}
 			out, err := ParseResponse(strings.NewReader(string(raw)), names)
 			if err != nil {
@@ -778,7 +833,10 @@ func TestParseResponse_ContentSniff_ScoutFixtureWithFramingTokens(t *testing.T) 
 			},
 		},
 	}
-	raw, _ := json.Marshal(payload)
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
 	names := map[string]struct{}{"mcp__claw__get_session_messages": {}}
 	out, err := ParseResponse(strings.NewReader(string(raw)), names)
 	if err != nil {

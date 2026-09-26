@@ -173,7 +173,10 @@ func TestAntigravityCliProvider_ModelFlag(t *testing.T) {
 			[]Message{{Role: "user", Content: "hi"}}, nil, tc.model, nil); err != nil {
 			t.Fatalf("model %q: Chat: %v", tc.model, err)
 		}
-		raw, _ := os.ReadFile(argsFile)
+		raw, err := os.ReadFile(argsFile)
+		if err != nil {
+			t.Fatalf("read %s: %v", argsFile, err)
+		}
 		got := strings.Contains(string(raw), "--model")
 		if got != tc.want {
 			t.Errorf("model %q: --model passed = %v, want %v (args: %s)", tc.model, got, tc.want, raw)

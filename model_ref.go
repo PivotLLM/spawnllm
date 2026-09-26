@@ -65,8 +65,8 @@ func ModelKey(provider, model string) string {
 // ModelKey; the model side may itself contain slashes (e.g. openrouter
 // upstream IDs like stepfun/step-3.5-flash:free) so we split on the first /.
 func splitModelKey(key string) (provider, model string) {
-	if i := strings.Index(key, "/"); i >= 0 {
-		return key[:i], key[i+1:]
+	if before, after, ok := strings.Cut(key, "/"); ok {
+		return before, after
 	}
 	return key, ""
 }

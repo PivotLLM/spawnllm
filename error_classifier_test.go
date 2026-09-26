@@ -23,6 +23,16 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 	}
 }
 
+// A user abort that reaches the classifier wrapped (the HTTP client wraps it in
+// *url.Error, providers add context) is still a user abort, even when the
+// surrounding message happens to contain a transient-looking word.
+func TestClassifyError_WrappedContextCanceled(t *testing.T) {
+	err := fmt.Errorf("waiting for response timeout: %w", context.Canceled)
+	if result := ClassifyError(err, "openai", "gpt-4"); result != nil {
+		t.Errorf("expected nil for wrapped context.Canceled (user abort), got %+v", result)
+	}
+}
+
 func TestClassifyError_ContextDeadlineExceeded(t *testing.T) {
 	result := ClassifyError(context.DeadlineExceeded, "openai", "gpt-4")
 	if result == nil {
@@ -99,6 +109,38 @@ func TestClassifyError_LimitExceededIsRateLimitNotAuth(t *testing.T) {
 	}
 	if got := ClassifyError(auth, "openrouter", "gpt-5.5"); got == nil || got.Reason != FailoverAuth {
 		t.Fatalf("403 auth: reason = %v, want auth", reasonOf(got))
+	}
+}
+
+// TestClassifyError_StructuredContextOverflowIsContextLimit pins the
+// structured path for context overflow: OpenAI-compatible endpoints answer
+// HTTP 400 with code context_length_exceeded and Anthropic with "prompt is too
+// long". Both must classify as context_limit so the host compacts and retries,
+// not as a 400 format error that loses the turn.
+func TestClassifyError_StructuredContextOverflowIsContextLimit(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+	}{
+		{"openai code", `{"error":{"message":"This model's maximum context length is 128000 tokens.","type":"invalid_request_error","code":"context_length_exceeded"}}`},
+		{"anthropic prompt too long", `{"type":"error","error":{"type":"invalid_request_error","message":"prompt is too long: 210000 tokens > 200000 maximum"}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := &common.HTTPStatusError{StatusCode: 400, BodyPreview: tc.body}
+			got := ClassifyError(err, "openai", "gpt-4o")
+			if got == nil || got.Reason != FailoverContextLimit {
+				t.Fatalf("400 %s: reason = %v, want context_limit", tc.name, reasonOf(got))
+			}
+			if got.Status != 400 {
+				t.Fatalf("status = %d, want 400", got.Status)
+			}
+		})
+	}
+
+	// A plain 400 with no overflow marker stays a format error.
+	plain := &common.HTTPStatusError{StatusCode: 400, BodyPreview: `{"error":{"message":"invalid value for 'temperature'"}}`}
+	if got := ClassifyError(plain, "openai", "gpt-4o"); got == nil || got.Reason != FailoverFormat {
+		t.Fatalf("plain 400: reason = %v, want format", reasonOf(got))
 	}
 }
 
@@ -349,7 +391,7 @@ func TestFailoverError_ErrorString(t *testing.T) {
 func TestFailoverError_Unwrap(t *testing.T) {
 	inner := errors.New("inner error")
 	fe := &FailoverError{Reason: FailoverTimeout, Wrapped: inner}
-	if fe.Unwrap() != inner {
+	if !errors.Is(fe.Unwrap(), inner) {
 		t.Error("Unwrap should return wrapped error")
 	}
 }

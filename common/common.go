@@ -11,6 +11,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -405,12 +406,11 @@ func sniffContentToolCalls(content string, toolNames map[string]struct{}, choice
 
 	out := make([]ToolCall, 0, len(candidates))
 	for i, c := range candidates {
-		typ, _ := c["type"].(string)
-		if typ != "function" {
+		if typ, ok := c["type"].(string); !ok || typ != "function" {
 			return nil, false
 		}
-		name, _ := c["name"].(string)
-		if name == "" {
+		name, ok := c["name"].(string)
+		if !ok || name == "" {
 			return nil, false
 		}
 		if _, ok := toolNames[name]; !ok {
@@ -600,7 +600,7 @@ func ReadParseAndMeasure(resp *http.Response, apiBase string, toolNames map[stri
 	counter := &readCounter{r: resp.Body}
 	reader := bufio.NewReader(counter)
 	prefix, err := reader.Peek(256)
-	if err != nil && err != io.EOF && err != bufio.ErrBufferFull {
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, bufio.ErrBufferFull) {
 		return nil, counter.n, fmt.Errorf("failed to inspect response: %w", err)
 	}
 	if LooksLikeHTML(prefix, contentType) {
@@ -685,10 +685,7 @@ func leadingTrimmedPrefix(body []byte, maxLen int) []byte {
 		case ' ', '\t', '\n', '\r', '\f', '\v':
 			i++
 		default:
-			end := i + maxLen
-			if end > len(body) {
-				end = len(body)
-			}
+			end := min(i+maxLen, len(body))
 			return body[i:end]
 		}
 	}

@@ -2,7 +2,7 @@ package spawnllm
 
 import (
 	"context"
-	"fmt"
+	"errors"
 )
 
 // UnconfiguredProvider is used when no model is configured at gateway startup.
@@ -15,7 +15,7 @@ func NewUnconfiguredProvider() *UnconfiguredProvider {
 }
 
 func (u *UnconfiguredProvider) Chat(ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any) (*LLMResponse, error) {
-	return nil, fmt.Errorf("no model configured — enable a model and add your API key in the configuration")
+	return nil, errors.New("no model configured — enable a model and add your API key in the configuration")
 }
 
 func (u *UnconfiguredProvider) GetDefaultModel() string {

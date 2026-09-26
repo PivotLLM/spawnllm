@@ -42,12 +42,12 @@ func createMockCLI(t *testing.T, stdout, stderr string, exitCode int) string {
 	var sb strings.Builder
 	sb.WriteString("#!/bin/sh\n")
 	if stderr != "" {
-		sb.WriteString(fmt.Sprintf("cat '%s/stderr.txt' >&2\n", dir))
+		fmt.Fprintf(&sb, "cat '%s/stderr.txt' >&2\n", dir)
 	}
 	if stdout != "" {
-		sb.WriteString(fmt.Sprintf("cat '%s/stdout.txt'\n", dir))
+		fmt.Fprintf(&sb, "cat '%s/stdout.txt'\n", dir)
 	}
-	sb.WriteString(fmt.Sprintf("exit %d\n", exitCode))
+	fmt.Fprintf(&sb, "exit %d\n", exitCode)
 
 	script := filepath.Join(dir, "claude")
 	if err := os.WriteFile(script, []byte(sb.String()), 0o755); err != nil {
@@ -368,7 +368,10 @@ func TestChat_PassesModelFlag(t *testing.T) {
 		t.Fatalf("Chat() error = %v", err)
 	}
 
-	argsBytes, _ := os.ReadFile(argsFile)
+	argsBytes, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", argsFile, err)
+	}
 	args := string(argsBytes)
 	if !strings.Contains(args, "--model") {
 		t.Errorf("CLI args missing --model, got: %s", args)
@@ -392,7 +395,10 @@ func TestChat_SkipsModelFlagForClaudeCode(t *testing.T) {
 		t.Fatalf("Chat() error = %v", err)
 	}
 
-	argsBytes, _ := os.ReadFile(argsFile)
+	argsBytes, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", argsFile, err)
+	}
 	args := string(argsBytes)
 	if strings.Contains(args, "--model") {
 		t.Errorf("CLI args should NOT contain --model for claude-code, got: %s", args)
@@ -413,7 +419,10 @@ func TestChat_SkipsModelFlagForEmptyModel(t *testing.T) {
 		t.Fatalf("Chat() error = %v", err)
 	}
 
-	argsBytes, _ := os.ReadFile(argsFile)
+	argsBytes, err := os.ReadFile(argsFile)
+	if err != nil {
+		t.Fatalf("read %s: %v", argsFile, err)
+	}
 	args := string(argsBytes)
 	if strings.Contains(args, "--model") {
 		t.Errorf("CLI args should NOT contain --model for empty model, got: %s", args)

@@ -1,0 +1,210 @@
+# golangci-lint configuration for spawnllm.
+#
+# The linter set and settings follow ClawEh's .golangci.yaml (the house style
+# across the ClawEh ecosystem); differences are called out where they occur.
+# Run through `make lint`, and as part of the gate (`make test`).
+
+version: "2"
+
+linters:
+  default: all
+  disable:
+    # Off in the house style.
+    - containedctx
+    - cyclop
+    - depguard
+    - dupword
+    - gomodguard
+    - err113
+    - exhaustruct
+    - exhaustruct_v5
+    - funcorder
+    - gochecknoglobals
+    - godot
+    - intrange
+    - ireturn
+    - nlreturn
+    - noctx
+    - noinlineerr
+    - nonamedreturns
+    - tagliatelle
+    - testpackage
+    - varnamelen
+    - wrapcheck
+    - wsl
+    - wsl_v5
+
+    # Not adopted in the house style (ClawEh decision, 2026-09-19): volume
+    # style opinions, or rules that need curating before they signal anything.
+    # Counts in parentheses are what each reports on spawnllm (2026-09-26);
+    # forbidigo, gochecknoinits, godox and tagalign are clean here today but
+    # stay off with the house style.
+    #
+    # paralleltest (369), goconst (220), lll (110), mnd (25), tagalign (0),
+    # forbidigo (0), revive with enable-all-rules (245), gochecknoinits (0),
+    # godox (0).
+    - forbidigo
+    - gochecknoinits
+    - goconst
+    - godox
+    - lll
+    - mnd
+    - paralleltest
+    - revive
+    - tagalign
+
+    # Still open in the house style: each fix restructures functions or
+    # changes signatures, so each is its own piece of work. Counts are for
+    # spawnllm (2026-09-26).
+    #
+    # funlen (13), gocyclo (9), gocognit (13), nestif (6), maintidx (1):
+    #   complexity; the provider Chat and stream-parsing functions dominate.
+    # unparam (2): parameters kept for interface symmetry.
+    #
+    # ClawEh also defers embeddedstructfieldcheck, nilnil and testifylint;
+    # spawnllm has no findings for them, so they are enabled here.
+    - funlen
+    - gocognit
+    - gocyclo
+    - maintidx
+    - nestif
+    - unparam
+  settings:
+    errcheck:
+      check-type-assertions: true
+      check-blank: true
+    exhaustive:
+      default-signifies-exhaustive: true
+    funlen:
+      lines: 120
+      statements: 40
+    gocognit:
+      min-complexity: 25
+    gocritic:
+      disabled-checks:
+        # Style-only, and Go's own stdlib uses if/else chains freely. Rewriting
+        # them would be churn without changing behaviour; the checks that find
+        # real problems (badCall, appendAssign, exitAfterDefer, …) stay on.
+        - ifElseChain
+        - elseif
+    gocyclo:
+      min-complexity: 20
+    gosec:
+      excludes:
+        # G104 (unhandled errors) is the same check as errcheck; one linter
+        # is enough for it.
+        - G104
+        # G301/G302/G306 want 0750/0600 on every directory and file. As in
+        # ClawEh, file modes are a deliberate choice rather than a lint rule:
+        # the only hit here is openai_compat's optional request/response log
+        # (0640), a host-configured log file like the host's own logs.
+        - G301
+        - G302
+        - G306
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment
+    lll:
+      line-length: 120
+      tab-width: 4
+    modernize:
+      # omitzero on nested struct fields would start omitting zero-valued
+      # sections from the JSON request bodies sent to provider APIs; omitempty
+      # is a no-op there today and that wire format is a contract.
+      disable:
+        - omitzero
+    misspell:
+      # No locale. Canadian English takes British -our/-re ("behaviour",
+      # "centre") but American -ize ("synthesized"), so neither US nor UK fits.
+      # Unset, misspell reports only unambiguous typos, which is what we want.
+      locale: ""
+    mnd:
+      checks:
+        - argument
+        - assign
+        - case
+        - condition
+        - operation
+        - return
+    nakedret:
+      max-func-lines: 3
+    revive:
+      enable-all-rules: true
+      rules:
+        - name: add-constant
+          disabled: true
+        - name: argument-limit
+          arguments:
+            - 7
+          severity: warning
+        - name: banned-characters
+          disabled: true
+        - name: cognitive-complexity
+          disabled: true
+        - name: comment-spacings
+          arguments:
+            - nolint
+          severity: warning
+        - name: cyclomatic
+          disabled: true
+        - name: file-header
+          disabled: true
+        - name: function-result-limit
+          arguments:
+            - 3
+          severity: warning
+        - name: function-length
+          disabled: true
+        - name: line-length-limit
+          disabled: true
+        - name: max-public-structs
+          disabled: true
+        - name: modifies-value-receiver
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: unused-receiver
+          disabled: true
+  exclusions:
+    generated: lax
+    rules:
+      - linters:
+          - lll
+        source: '^//go:generate '
+      - linters:
+          - funlen
+          - maintidx
+          - gocognit
+          - gocyclo
+        path: _test\.go$
+      # Tests read their own fixtures, run fixed commands and use fake keys;
+      # gosec on them is noise that would need a directive per line.
+      - linters:
+          - gosec
+        path: _test\.go$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - localmodule
+      custom-order: true
+    gofmt:
+      simplify: true
+      rewrite-rules:
+        - pattern: "interface{}"
+          replacement: "any"
+        - pattern: "a[b:len(a)]"
+          replacement: "a[b:]"
