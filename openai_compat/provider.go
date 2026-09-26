@@ -233,7 +233,7 @@ func (p *Provider) Chat(
 	options map[string]any,
 ) (*LLMResponse, error) {
 	if p.apiBase == "" {
-		return nil, fmt.Errorf("API base not configured")
+		return nil, errors.New("API base not configured")
 	}
 
 	model = normalizeModel(model, p.apiBase)
@@ -368,7 +368,7 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.apiBase+"/chat/completions", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiBase+"/chat/completions", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -394,7 +394,11 @@ func (p *Provider) Chat(
 		return httpErrorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, 0),
 			fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.DebugCF("openai_compat", "closing response body", map[string]any{"error": closeErr.Error()})
+		}
+	}()
 
 	// When response logging is enabled, slurp the full body up front so we can
 	// append it to the diagnostic file before handing it off to the existing
@@ -460,8 +464,7 @@ func (p *Provider) readStream(
 	}
 
 	if err != nil {
-		var streamErr *common.StreamChatError
-		if errors.As(err, &streamErr) {
+		if streamErr, ok := errors.AsType[*common.StreamChatError](err); ok {
 			return httpErrorStatus(model, "error", durationMs, bytesSent, counter.n),
 				&common.HTTPStatusError{
 					StatusCode:  http.StatusOK,

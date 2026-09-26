@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/PivotLLM/spawnllm/common"
+	"github.com/PivotLLM/spawnllm/logger"
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
 
@@ -85,7 +86,7 @@ func (p *Provider) Chat(
 	options map[string]any,
 ) (*LLMResponse, error) {
 	if p.apiBase == "" {
-		return nil, fmt.Errorf("Azure API base not configured")
+		return nil, errors.New("azure: API base not configured")
 	}
 
 	// model is the deployment name for Azure OpenAI
@@ -135,7 +136,7 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", requestURL, bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, requestURL, bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -153,7 +154,11 @@ func (p *Provider) Chat(
 		return azureErrorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, 0),
 			fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.DebugCF("azure", "closing response body", map[string]any{"error": closeErr.Error()})
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		respErr := common.HandleErrorResponse(resp, p.apiBase)
@@ -201,8 +206,7 @@ func (p *Provider) readStream(
 	durationMs := time.Since(start).Milliseconds()
 
 	if err != nil {
-		var streamErr *common.StreamChatError
-		if errors.As(err, &streamErr) {
+		if streamErr, ok := errors.AsType[*common.StreamChatError](err); ok {
 			return azureErrorStatus(model, "error", durationMs, bytesSent, counter.n),
 				&common.HTTPStatusError{
 					StatusCode:  http.StatusOK,

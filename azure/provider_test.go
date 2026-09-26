@@ -9,7 +9,8 @@ import (
 )
 
 // writeValidResponse writes a minimal valid Azure OpenAI chat completion response.
-func writeValidResponse(w http.ResponseWriter) {
+func writeValidResponse(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
 	resp := map[string]any{
 		"choices": []map[string]any{
 			{
@@ -19,7 +20,9 @@ func writeValidResponse(w http.ResponseWriter) {
 		},
 	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(resp)
+	if err := json.NewEncoder(w).Encode(resp); err != nil {
+		t.Errorf("encode response: %v", err)
+	}
 }
 
 func TestProviderChat_AzureURLConstruction(t *testing.T) {
@@ -29,7 +32,7 @@ func TestProviderChat_AzureURLConstruction(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedPath = r.URL.Path
 		capturedAPIVersion = r.URL.Query().Get("api-version")
-		writeValidResponse(w)
+		writeValidResponse(t, w)
 	}))
 	defer server.Close()
 
@@ -55,7 +58,7 @@ func TestProviderChat_AzureAuthHeader(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedAPIKey = r.Header.Get("Api-Key")
 		capturedAuth = r.Header.Get("Authorization")
-		writeValidResponse(w)
+		writeValidResponse(t, w)
 	}))
 	defer server.Close()
 
@@ -77,8 +80,10 @@ func TestProviderChat_AzureOmitsModelFromBody(t *testing.T) {
 	var requestBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&requestBody)
-		writeValidResponse(w)
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		writeValidResponse(t, w)
 	}))
 	defer server.Close()
 
@@ -97,8 +102,10 @@ func TestProviderChat_AzureUsesMaxCompletionTokens(t *testing.T) {
 	var requestBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		json.NewDecoder(r.Body).Decode(&requestBody)
-		writeValidResponse(w)
+		if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
+		writeValidResponse(t, w)
 	}))
 	defer server.Close()
 
@@ -158,7 +165,9 @@ func TestProviderChat_AzureParseToolCalls(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -213,7 +222,7 @@ func TestProviderChat_AzureDeploymentNameEscaped(t *testing.T) {
 		if capturedPath == "" {
 			capturedPath = r.URL.Path
 		}
-		writeValidResponse(w)
+		writeValidResponse(t, w)
 	}))
 	defer server.Close()
 

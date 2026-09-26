@@ -23,6 +23,16 @@ func TestClassifyError_ContextCanceled(t *testing.T) {
 	}
 }
 
+// A user abort that reaches the classifier wrapped (the HTTP client wraps it in
+// *url.Error, providers add context) is still a user abort, even when the
+// surrounding message happens to contain a transient-looking word.
+func TestClassifyError_WrappedContextCanceled(t *testing.T) {
+	err := fmt.Errorf("waiting for response timeout: %w", context.Canceled)
+	if result := ClassifyError(err, "openai", "gpt-4"); result != nil {
+		t.Errorf("expected nil for wrapped context.Canceled (user abort), got %+v", result)
+	}
+}
+
 func TestClassifyError_ContextDeadlineExceeded(t *testing.T) {
 	result := ClassifyError(context.DeadlineExceeded, "openai", "gpt-4")
 	if result == nil {
@@ -381,7 +391,7 @@ func TestFailoverError_ErrorString(t *testing.T) {
 func TestFailoverError_Unwrap(t *testing.T) {
 	inner := errors.New("inner error")
 	fe := &FailoverError{Reason: FailoverTimeout, Wrapped: inner}
-	if fe.Unwrap() != inner {
+	if !errors.Is(fe.Unwrap(), inner) {
 		t.Error("Unwrap should return wrapped error")
 	}
 }

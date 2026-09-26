@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/PivotLLM/spawnllm/common"
+	"github.com/PivotLLM/spawnllm/logger"
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
 
@@ -77,7 +78,7 @@ func (p *Provider) Chat(
 	options map[string]any,
 ) (*LLMResponse, error) {
 	if p.apiKey == "" {
-		return nil, fmt.Errorf("API key not configured")
+		return nil, errors.New("API key not configured")
 	}
 
 	// Build request body
@@ -108,14 +109,14 @@ func (p *Provider) Chat(
 	}
 
 	// Create HTTP request
-	req, err := http.NewRequestWithContext(ctx, "POST", endpointURL, bytes.NewReader(jsonBody))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpointURL, bytes.NewReader(jsonBody))
 	if err != nil {
 		return nil, fmt.Errorf("creating HTTP request: %w", err)
 	}
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-API-Key", p.apiKey) //nolint:canonicalheader // Anthropic API requires exact header name
+	req.Header.Set("X-Api-Key", p.apiKey)
 	req.Header.Set("Anthropic-Version", defaultAPIVersion)
 
 	bytesSent := int64(len(jsonBody))
@@ -128,7 +129,11 @@ func (p *Provider) Chat(
 		return httpErrorResponse(model, "error", elapsed, bytesSent, 0),
 			fmt.Errorf("executing HTTP request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.DebugCF("anthropic_messages", "closing response body", map[string]any{"error": closeErr.Error()})
+		}
+	}()
 
 	// Streaming reads the body incrementally; the single-shot path below slurps
 	// the whole body. The non-200 error mapping is shared: both paths fall
@@ -150,7 +155,7 @@ func (p *Provider) Chat(
 		errResp := httpErrorResponse(model, "error", durationMs, bytesSent, bytesReceived)
 		switch resp.StatusCode {
 		case http.StatusUnauthorized:
-			return errResp, fmt.Errorf("authentication failed (401): check your API key")
+			return errResp, errors.New("authentication failed (401): check your API key")
 		case http.StatusTooManyRequests:
 			return errResp, fmt.Errorf("rate limited (429): %s", string(body))
 		case http.StatusBadRequest:
@@ -456,7 +461,7 @@ func buildRequestBody(
 	// max_tokens is required and guaranteed by agent loop
 	maxTokens, ok := asInt(options["max_tokens"])
 	if !ok {
-		return nil, fmt.Errorf("max_tokens is required in options")
+		return nil, errors.New("max_tokens is required in options")
 	}
 
 	result := map[string]any{
@@ -594,7 +599,11 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		case "text":
 			content.WriteString(block.Text)
 		case "tool_use":
-			argsJSON, _ := json.Marshal(block.Input)
+			argsJSON, err := json.Marshal(block.Input)
+			if err != nil {
+				logger.DebugCF("anthropic_messages", "tool_use input is not valid JSON",
+					map[string]any{"tool": block.Name, "error": err.Error()})
+			}
 			toolCalls = append(toolCalls, ToolCall{
 				ID:        block.ID,
 				Name:      block.Name,

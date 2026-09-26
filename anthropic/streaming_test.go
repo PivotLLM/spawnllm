@@ -22,10 +22,12 @@ func anthropicSSEServer(t *testing.T, events []string) *httptest.Server {
 			return
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
+		flusher, canFlush := w.(http.Flusher)
 		for _, e := range events {
-			_, _ = w.Write([]byte(e))
-			if flusher != nil {
+			if _, err := w.Write([]byte(e)); err != nil {
+				t.Errorf("write response: %v", err)
+			}
+			if canFlush {
 				flusher.Flush()
 			}
 		}
@@ -61,7 +63,7 @@ func TestChat_StreamingFiresTextDeltas(t *testing.T) {
 		"claude-sonnet-4.6",
 		map[string]any{
 			"max_tokens":           1024,
-			common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) }),
+			common.TextDeltaOption: func(d string) { deltas = append(deltas, d) },
 		},
 	)
 	if err != nil {
@@ -107,7 +109,7 @@ func TestChat_StreamingSkipsNonTextDeltas(t *testing.T) {
 		"claude-sonnet-4.6",
 		map[string]any{
 			"max_tokens":           1024,
-			common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) }),
+			common.TextDeltaOption: func(d string) { deltas = append(deltas, d) },
 		},
 	)
 	if err != nil {
@@ -139,7 +141,9 @@ func TestChat_NilCallbackKeepsSingleShot(t *testing.T) {
 			streamed = true
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`))
+		if _, err := w.Write([]byte(`{"id":"m","type":"message","role":"assistant","model":"claude-sonnet-4-6","stop_reason":"end_turn","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	t.Cleanup(srv.Close)
 

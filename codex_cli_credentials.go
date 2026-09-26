@@ -2,6 +2,7 @@ package spawnllm
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,7 +26,7 @@ func ReadCodexCliCredentials() (accessToken, accountID string, expiresAt time.Ti
 		return "", "", time.Time{}, err
 	}
 
-	data, err := os.ReadFile(authPath)
+	data, err := os.ReadFile(authPath) //nolint:gosec // the Codex CLI's own auth.json under $CODEX_HOME or ~/.codex
 	if err != nil {
 		return "", "", time.Time{}, fmt.Errorf("reading %s: %w", authPath, err)
 	}
@@ -59,9 +60,7 @@ func CreateCodexCliTokenSource() func() (string, string, error) {
 		}
 
 		if time.Now().After(expiresAt) {
-			return "", "", fmt.Errorf(
-				"codex cli credentials expired (auth.json last modified > 1h ago). Run: codex login",
-			)
+			return "", "", errors.New("codex cli credentials expired (auth.json last modified > 1h ago). Run: codex login")
 		}
 
 		return token, accountID, nil

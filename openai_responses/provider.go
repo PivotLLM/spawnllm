@@ -148,7 +148,7 @@ func (p *Provider) Chat(
 	options map[string]any,
 ) (*LLMResponse, error) {
 	if p.apiBase == "" {
-		return nil, fmt.Errorf("API base not configured")
+		return nil, errors.New("API base not configured")
 	}
 
 	instructions, input := buildInput(messages)
@@ -233,7 +233,7 @@ func (p *Provider) Chat(
 		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", p.apiBase+"/responses", bytes.NewReader(jsonData))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.apiBase+"/responses", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -253,7 +253,11 @@ func (p *Provider) Chat(
 		return errorStatus(model, "error", time.Since(start).Milliseconds(), bytesSent, 0),
 			fmt.Errorf("failed to send request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.DebugCF("openai_responses", "closing response body", map[string]any{"error": closeErr.Error()})
+		}
+	}()
 
 	// Streaming reads the body incrementally; the single-shot path below slurps
 	// it whole. A non-200 status is handled the same way in both cases (the
@@ -356,7 +360,7 @@ func (p *Provider) readStream(
 
 	if len(completed) == 0 {
 		return errorStatus(model, "parse_error", durationMs, bytesSent, counter.n),
-			fmt.Errorf("stream ended without response.completed event")
+			errors.New("stream ended without response.completed event")
 	}
 
 	out, err := parseResponse(completed, model)
@@ -436,7 +440,7 @@ func buildInput(messages []Message) (instructions string, input []any) {
 			// the function_call it produced. Reasoning models + tools only.
 			for _, ri := range m.ResponsesReasoning {
 				if len(ri) > 0 {
-					input = append(input, json.RawMessage(ri))
+					input = append(input, ri)
 				}
 			}
 			if strings.TrimSpace(m.Content) != "" {
@@ -697,6 +701,12 @@ func (p *Provider) appendLog(dir, model string, status int, durationMs int64, bo
 	if err != nil {
 		return
 	}
-	defer f.Close()
-	_, _ = f.Write(append(data, '\n'))
+	defer func() {
+		if closeErr := f.Close(); closeErr != nil {
+			logger.DebugCF("openai_responses", "closing response log", map[string]any{"error": closeErr.Error()})
+		}
+	}()
+	if _, err := f.Write(append(data, '\n')); err != nil {
+		logger.DebugCF("openai_responses", "writing response log", map[string]any{"error": err.Error()})
+	}
 }

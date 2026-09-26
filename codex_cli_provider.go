@@ -61,7 +61,7 @@ func (p *CodexCliProvider) Chat(
 	ctx context.Context, messages []Message, tools []ToolDefinition, model string, options map[string]any,
 ) (*LLMResponse, error) {
 	if p.command == "" {
-		return nil, fmt.Errorf("codex command not configured")
+		return nil, errors.New("codex command not configured")
 	}
 
 	if p.timeout > 0 {
@@ -130,8 +130,7 @@ func (p *CodexCliProvider) Chat(
 			return cliErrorResponse(model, "canceled", elapsed, bytesSent, bytesReceived), ctx.Err()
 		}
 		exitCode := -1
-		var exitErr *exec.ExitError
-		if errors.As(runErr, &exitErr) {
+		if exitErr, ok := errors.AsType[*exec.ExitError](runErr); ok {
 			exitCode = exitErr.ExitCode()
 		}
 		stderrStr := strings.TrimSpace(stderr.String())

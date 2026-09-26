@@ -3,8 +3,11 @@
 package spawnllm
 
 import (
+	"errors"
 	"os/exec"
 	"syscall"
+
+	"github.com/PivotLLM/spawnllm/logger"
 )
 
 // setCLIProcessGroup starts the CLI as the leader of a new process group and
@@ -32,5 +35,7 @@ func killCLIProcessGroup(cmd *exec.Cmd) {
 	if cmd.Process == nil {
 		return
 	}
-	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+	if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		logger.DebugCF("provider", "killing CLI process group", map[string]any{"pid": cmd.Process.Pid, "error": err.Error()})
+	}
 }

@@ -90,8 +90,11 @@ func TestRun_APILoop_MaxIterations(t *testing.T) {
 	tool := toolspec.ToolDefinition{Name: "echo", Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
 		return &toolspec.Result{ForLLM: "again"}, nil
 	}}
-	w, _ := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}), WithMaxIterations(3))
-	_, err := w.Run(context.Background(), nil)
+	w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}), WithMaxIterations(3))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	_, err = w.Run(context.Background(), nil)
 	if err == nil {
 		t.Fatal("expected max-iterations error")
 	}
@@ -105,7 +108,10 @@ func TestRun_APILoop_ToolError_FeedsBackToModel(t *testing.T) {
 	tool := toolspec.ToolDefinition{Name: "boom", Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
 		return nil, errors.New("kaboom")
 	}}
-	w, _ := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+	w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	res, err := w.Run(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("Run: %v", err)
@@ -126,7 +132,10 @@ func TestRun_APILoop_ToolError_FeedsBackToModel(t *testing.T) {
 
 func TestRun_CLI_SingleCallNoLoop(t *testing.T) {
 	prov := &scriptedProvider{cli: true, resps: []*LLMResponse{{Content: "cli output"}}}
-	w, _ := New(WithProviderInstance(prov, "m"))
+	w, err := New(WithProviderInstance(prov, "m"))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
 	res, err := w.Run(context.Background(), []Message{{Role: "user", Content: "go"}})
 	if err != nil {
 		t.Fatalf("Run: %v", err)

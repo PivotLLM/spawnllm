@@ -122,7 +122,7 @@ func TestCLI_TimeoutKillsProcessGroup(t *testing.T) {
 
 			grandchild := readPID(t, pidFile)
 			if !processGone(grandchild, 3*time.Second) {
-				_ = syscall.Kill(grandchild, syscall.SIGKILL)
+				killGrandchild(t, grandchild)
 				t.Fatalf("grandchild %d survived the timeout", grandchild)
 			}
 		})
@@ -158,7 +158,7 @@ exit 0
 
 	grandchild := readPID(t, pidFile)
 	if !processGone(grandchild, 3*time.Second) {
-		_ = syscall.Kill(grandchild, syscall.SIGKILL)
+		killGrandchild(t, grandchild)
 		t.Fatalf("grandchild %d survived after the CLI exited", grandchild)
 	}
 }
@@ -187,5 +187,14 @@ func TestCLI_StdoutCapExceeded(t *testing.T) {
 	}
 	if resp.Status.BytesReceived != int64(overflow) {
 		t.Fatalf("BytesReceived = %d, want %d (pipe must be fully drained)", resp.Status.BytesReceived, overflow)
+	}
+}
+
+// killGrandchild cleans up a descendant the provider failed to kill, so a
+// failing test does not leave it running. It may already have exited.
+func killGrandchild(t *testing.T, pid int) {
+	t.Helper()
+	if err := syscall.Kill(pid, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
+		t.Errorf("kill grandchild %d: %v", pid, err)
 	}
 }

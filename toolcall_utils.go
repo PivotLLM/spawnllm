@@ -7,6 +7,8 @@ package spawnllm
 
 import (
 	"encoding/json"
+
+	"github.com/PivotLLM/spawnllm/logger"
 )
 
 // NormalizeToolCall normalizes a ToolCall to ensure all fields are properly populated.
@@ -34,7 +36,11 @@ func NormalizeToolCall(tc ToolCall) ToolCall {
 	}
 
 	// Ensure Function is populated with consistent values
-	argsJSON, _ := json.Marshal(normalized.Arguments)
+	argsJSON, err := json.Marshal(normalized.Arguments)
+	if err != nil {
+		logger.DebugCF("provider", "tool call arguments are not JSON-encodable",
+			map[string]any{"tool": normalized.Name, "error": err.Error()})
+	}
 	if normalized.Function == nil {
 		normalized.Function = &FunctionCall{
 			Name:      normalized.Name,

@@ -22,24 +22,21 @@ func TestApplyProviderEnv_Nil(t *testing.T) {
 func TestApplyProviderEnv_AppendsAfterOSEnviron(t *testing.T) {
 	// Set a known var in our process env so we can verify the override order.
 	key := "CLAW_TEST_APPLY_ENV_KEY"
-	if err := os.Setenv(key, "from-parent"); err != nil {
-		t.Fatalf("setenv: %v", err)
-	}
-	defer os.Unsetenv(key)
+	t.Setenv(key, "from-parent")
 
 	got := applyProviderEnv(nil, map[string]string{
 		key:                 "from-model",
 		"CLAW_TEST_NEW_KEY": "fresh",
 	})
 
-	var parentIdx, modelIdx, freshIdx int = -1, -1, -1
+	parentIdx, modelIdx, freshIdx := -1, -1, -1
 	for i, kv := range got {
-		switch {
-		case kv == key+"=from-parent":
+		switch kv {
+		case key + "=from-parent":
 			parentIdx = i
-		case kv == key+"=from-model":
+		case key + "=from-model":
 			modelIdx = i
-		case kv == "CLAW_TEST_NEW_KEY=fresh":
+		case "CLAW_TEST_NEW_KEY=fresh":
 			freshIdx = i
 		}
 	}
@@ -104,26 +101,25 @@ func TestApplyProviderEnv_BaseReplacesOSEnviron(t *testing.T) {
 
 // Every CLI provider accepts a base environment through the shared interface.
 func TestCLIProviders_ImplementBaseEnvSetter(t *testing.T) {
-	providers := []BaseEnvSetter{
-		NewClaudeCliProvider("", "", nil, nil),
-		NewCodexCliProvider("", "", nil, nil),
-		NewCursorCliProvider("", "", nil, nil),
-		NewAntigravityCliProvider("", "", nil, nil),
-	}
+	claude := NewClaudeCliProvider("", "", nil, nil)
+	codex := NewCodexCliProvider("", "", nil, nil)
+	cursor := NewCursorCliProvider("", "", nil, nil)
+	antigravity := NewAntigravityCliProvider("", "", nil, nil)
+	providers := []BaseEnvSetter{claude, codex, cursor, antigravity}
 	base := []string{"PATH=/usr/bin"}
 	for _, p := range providers {
 		p.SetBaseEnv(base)
 	}
-	if got := providers[0].(*ClaudeCliProvider).baseEnv; !slices.Equal(got, base) {
+	if got := claude.baseEnv; !slices.Equal(got, base) {
 		t.Errorf("claude baseEnv = %v, want %v", got, base)
 	}
-	if got := providers[1].(*CodexCliProvider).baseEnv; !slices.Equal(got, base) {
+	if got := codex.baseEnv; !slices.Equal(got, base) {
 		t.Errorf("codex baseEnv = %v, want %v", got, base)
 	}
-	if got := providers[2].(*CursorCliProvider).baseEnv; !slices.Equal(got, base) {
+	if got := cursor.baseEnv; !slices.Equal(got, base) {
 		t.Errorf("cursor baseEnv = %v, want %v", got, base)
 	}
-	if got := providers[3].(*AntigravityCliProvider).baseEnv; !slices.Equal(got, base) {
+	if got := antigravity.baseEnv; !slices.Equal(got, base) {
 		t.Errorf("antigravity baseEnv = %v, want %v", got, base)
 	}
 }

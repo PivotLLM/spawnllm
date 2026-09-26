@@ -88,7 +88,7 @@ type cliRun struct {
 // given a WaitDelay so a descendant holding the output pipes cannot block Wait
 // indefinitely. Callers set Dir, Stdin and Env, then pass the command to runCLI.
 func newCLICommand(ctx context.Context, name string, args ...string) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // running the host-configured CLI is this function's purpose; no shell is involved
 	cmd.WaitDelay = cliWaitDelay
 	setCLIProcessGroup(cmd)
 	return cmd

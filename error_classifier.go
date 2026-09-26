@@ -165,7 +165,7 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	}
 
 	// Context cancellation: user abort, never fallback.
-	if err == context.Canceled {
+	if errors.Is(err, context.Canceled) {
 		return nil
 	}
 
@@ -182,8 +182,7 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 	// Structured HTTP status error from common.HandleErrorResponse. Carries
 	// the Retry-After hint so the fallback chain can size its cooldown to
 	// the server's suggestion instead of the default exponential backoff.
-	var statusErr *common.HTTPStatusError
-	if errors.As(err, &statusErr) {
+	if statusErr, ok := errors.AsType[*common.HTTPStatusError](err); ok {
 		// Structured billing markers in the body override status-based
 		// classification. OpenAI returns insufficient_quota with HTTP 429
 		// — without this check, the request would be treated as a transient

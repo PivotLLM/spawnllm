@@ -21,7 +21,7 @@ func TestBuildParams_BasicMessage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildParams() error: %v", err)
 	}
-	if string(params.Model) != "claude-sonnet-4-6" {
+	if params.Model != "claude-sonnet-4-6" {
 		t.Errorf("Model = %q, want %q", params.Model, "claude-sonnet-4-6")
 	}
 	if params.MaxTokens != 1024 {
@@ -155,7 +155,9 @@ func TestProvider_ChatRoundTrip(t *testing.T) {
 		}
 
 		var reqBody map[string]any
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 
 		resp := map[string]any{
 			"id":          "msg_test",
@@ -172,7 +174,9 @@ func TestProvider_ChatRoundTrip(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -208,13 +212,13 @@ func TestProvider_NewProviderWithBaseURL_NormalizesV1Suffix(t *testing.T) {
 }
 
 func TestProvider_ChatUsesTokenSource(t *testing.T) {
-	var requests int32
+	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/messages" {
 			http.Error(w, "not found", http.StatusNotFound)
 			return
 		}
-		atomic.AddInt32(&requests, 1)
+		requests.Add(1)
 
 		if got := r.Header.Get("Authorization"); got != "Bearer refreshed-token" {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -222,7 +226,9 @@ func TestProvider_ChatUsesTokenSource(t *testing.T) {
 		}
 
 		var reqBody map[string]any
-		json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 
 		resp := map[string]any{
 			"id":          "msg_test",
@@ -239,7 +245,9 @@ func TestProvider_ChatUsesTokenSource(t *testing.T) {
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(resp)
+		if err := json.NewEncoder(w).Encode(resp); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -257,7 +265,7 @@ func TestProvider_ChatUsesTokenSource(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Chat() error: %v", err)
 	}
-	if got := atomic.LoadInt32(&requests); got != 1 {
+	if got := requests.Load(); got != 1 {
 		t.Fatalf("requests = %d, want 1", got)
 	}
 }
@@ -276,7 +284,7 @@ func TestProvider_ChatStreamingRoundTrip(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
-		flusher, _ := w.(http.Flusher)
+		flusher, canFlush := w.(http.Flusher)
 
 		events := []string{
 			"event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"id\":\"msg_stream\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"claude-sonnet-4-6\",\"stop_reason\":null,\"usage\":{\"input_tokens\":12,\"output_tokens\":0}}}\n\n",
@@ -288,8 +296,10 @@ func TestProvider_ChatStreamingRoundTrip(t *testing.T) {
 			"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n",
 		}
 		for _, e := range events {
-			w.Write([]byte(e))
-			if flusher != nil {
+			if _, err := w.Write([]byte(e)); err != nil {
+				t.Errorf("write response: %v", err)
+			}
+			if canFlush {
 				flusher.Flush()
 			}
 		}

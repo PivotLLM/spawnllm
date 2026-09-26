@@ -16,11 +16,15 @@ func sseServer(t *testing.T, body string, captured *map[string]any) *httptest.Se
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if captured != nil {
-			_ = json.NewDecoder(r.Body).Decode(captured)
+			if err := json.NewDecoder(r.Body).Decode(captured); err != nil {
+				t.Errorf("decode request: %v", err)
+			}
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(body))
+		if _, err := w.Write([]byte(body)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 }
 
@@ -37,7 +41,7 @@ func TestProviderChat_StreamingPlainText(t *testing.T) {
 	var deltas []string
 	p := NewProvider("key", server.URL, "")
 	out, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-4o",
-		map[string]any{common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) })})
+		map[string]any{common.TextDeltaOption: func(d string) { deltas = append(deltas, d) }})
 	if err != nil {
 		t.Fatalf("Chat() error = %v", err)
 	}
@@ -70,9 +74,13 @@ func TestProviderChat_NonStreamingWhenNoCallback(t *testing.T) {
 	// omit the stream flag and use the single-shot JSON handler.
 	var reqBody map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_ = json.NewDecoder(r.Body).Decode(&reqBody)
+		if err := json.NewDecoder(r.Body).Decode(&reqBody); err != nil {
+			t.Errorf("decode request: %v", err)
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"gpt-4o","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`))
+		if _, err := w.Write([]byte(`{"model":"gpt-4o","choices":[{"message":{"content":"ok"},"finish_reason":"stop"}]}`)); err != nil {
+			t.Errorf("write response: %v", err)
+		}
 	}))
 	defer server.Close()
 
@@ -100,7 +108,7 @@ func TestProviderChat_StreamingInBandError(t *testing.T) {
 	var deltas []string
 	p := NewProvider("key", server.URL, "")
 	out, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-4o",
-		map[string]any{common.TextDeltaOption: common.TextDeltaFunc(func(d string) { deltas = append(deltas, d) })})
+		map[string]any{common.TextDeltaOption: func(d string) { deltas = append(deltas, d) }})
 	if err == nil {
 		t.Fatalf("expected error from in-band error chunk")
 	}
