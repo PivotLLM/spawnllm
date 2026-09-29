@@ -118,6 +118,16 @@ var (
 		substr("invalid request format"),
 	}
 
+	// Unavailable-model patterns: nothing at the endpoint serves this model
+	// (OpenRouter's "No endpoints found that support ..." for a retired model
+	// or an unsupported parameter; an OpenAI-style "model does not exist").
+	// See FailoverUnavailable.
+	unavailablePatterns = []errorPattern{
+		substr("no endpoints found"),
+		substr("model_not_found"),
+		rxp(`model .* does not exist`),
+	}
+
 	// Parse-error patterns: a malformed upstream response should not stop the
 	// fallback chain. Classifying them as a transient (timeout-like) failure
 	// makes the next configured candidate take over instead of bubbling a raw
@@ -305,6 +315,11 @@ func classifyByStatus(status int) FailoverReason {
 		return FailoverContextLimit
 	case status == 400:
 		return FailoverFormat
+	case status == 404:
+		// Nothing serves this model here: OpenRouter's "No endpoints found that
+		// support ..." for a retired model or an unsupported parameter, an
+		// OpenAI-style "model does not exist". The next model in the chain can.
+		return FailoverUnavailable
 	case transientStatusCodes[status]:
 		return FailoverTimeout
 	}
@@ -337,6 +352,9 @@ func classifyByMessage(msg string) FailoverReason {
 	}
 	if matchesAny(msg, authPatterns) {
 		return FailoverAuth
+	}
+	if matchesAny(msg, unavailablePatterns) {
+		return FailoverUnavailable
 	}
 	if matchesAny(msg, parseErrorPatterns) {
 		// A malformed upstream response is transient from the caller's

@@ -54,6 +54,7 @@ func TestClassifyError_StatusCodes(t *testing.T) {
 		{408, FailoverTimeout},
 		{429, FailoverRateLimit},
 		{400, FailoverFormat},
+		{404, FailoverUnavailable},
 		{500, FailoverTimeout},
 		{502, FailoverTimeout},
 		{503, FailoverTimeout},
@@ -517,5 +518,29 @@ func TestClassifyError_BillingBodyMarkers_MessagePath(t *testing.T) {
 				t.Errorf("reason=%q, want billing", result.Reason)
 			}
 		})
+	}
+}
+
+// A model no endpoint serves — OpenRouter's 404 "No endpoints found", an
+// OpenAI-style "model does not exist" — is unavailable: the chain moves to the
+// next model and this one cools down, instead of the turn failing unclassified.
+func TestClassifyError_UnavailableModel(t *testing.T) {
+	cases := []error{
+		&common.HTTPStatusError{StatusCode: 404, BodyPreview: `{"error":{"message":"No endpoints found that support the requested parameters. Filter by Parameters at https://openrouter.ai/models","code":404}}`},
+		errors.New("API error: status: 404 No endpoints found that support the requested parameters"),
+		errors.New("The model `gpt-4-0314` does not exist or you do not have access to it"),
+		errors.New("model_not_found: unknown model"),
+	}
+	for _, err := range cases {
+		got := ClassifyError(err, "openrouter", "m")
+		if got == nil || got.Reason != FailoverUnavailable {
+			t.Errorf("%v: got %+v, want reason %q", err, got, FailoverUnavailable)
+		}
+	}
+	if !FailoverUnavailable.CoolsDown() {
+		t.Error("an unavailable model must cool down")
+	}
+	if ReasonText(FailoverUnavailable) != "model not available" {
+		t.Errorf("ReasonText = %q", ReasonText(FailoverUnavailable))
 	}
 }

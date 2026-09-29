@@ -66,6 +66,10 @@ const (
 	FailoverOverloaded   FailoverReason = "overloaded"
 	FailoverUnknown      FailoverReason = "unknown"
 	FailoverContextLimit FailoverReason = "context_limit"
+	// FailoverUnavailable: the endpoint cannot serve this model at all (HTTP 404;
+	// OpenRouter's "No endpoints found", a model id that no longer exists). No
+	// retry of the same model fixes it; the chain moves on and the model cools.
+	FailoverUnavailable FailoverReason = "unavailable"
 )
 
 // ReasonText returns a short human phrase for a FailoverReason, for user-facing
@@ -86,6 +90,8 @@ func ReasonText(r FailoverReason) string {
 		return "context too large"
 	case FailoverFormat:
 		return "bad response format"
+	case FailoverUnavailable:
+		return "model not available"
 	default:
 		return "error"
 	}
@@ -98,7 +104,7 @@ func ReasonText(r FailoverReason) string {
 // transient).
 func (r FailoverReason) CoolsDown() bool {
 	switch r {
-	case FailoverBilling, FailoverAuth, FailoverRateLimit, FailoverOverloaded:
+	case FailoverBilling, FailoverAuth, FailoverRateLimit, FailoverOverloaded, FailoverUnavailable:
 		return true
 	default:
 		return false
