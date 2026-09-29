@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -657,6 +658,52 @@ func TestParseClaudeCliResponse_IsError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Something went wrong") {
 		t.Errorf("error = %q, want to contain 'Something went wrong'", err.Error())
+	}
+}
+
+// A refused tool call leaves the envelope a success with a prose answer; the
+// refusal is only visible in permission_denials, which must reach the status.
+func TestParseClaudeCliResponse_PermissionDenials(t *testing.T) {
+	p := NewClaudeCliProvider("", "/workspace", nil, nil)
+	output := `{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"It did not work: the permission request was denied.","session_id":"s",` +
+		`"permission_denials":[{"tool_name":"mcp__claw__maestro_file_get","tool_use_id":"toolu_1","tool_input":{"path":"assistant/email.md"}},` +
+		`{"tool_name":"mcp__claw__microsoft365_mail_read_inbox","tool_use_id":"toolu_2","tool_input":{}},` +
+		`{"tool_name":"mcp__claw__maestro_file_get","tool_use_id":"toolu_3","tool_input":{}},` +
+		`{"tool_name":"  ","tool_use_id":"toolu_4","tool_input":{}}]}`
+
+	resp, err := p.parseClaudeCliResponse(output)
+	if err != nil {
+		t.Fatalf("parseClaudeCliResponse() error = %v", err)
+	}
+	if resp.Status == nil {
+		t.Fatal("Status should not be nil")
+	}
+	want := []string{"mcp__claw__maestro_file_get", "mcp__claw__microsoft365_mail_read_inbox"}
+	if !slices.Equal(resp.Status.DeniedTools, want) {
+		t.Errorf("DeniedTools = %v, want %v", resp.Status.DeniedTools, want)
+	}
+	if !resp.Status.Success {
+		t.Error("a refused call is not a failed run: Success should stay true")
+	}
+	if resp.Content == "" {
+		t.Error("the CLI's prose answer must be kept")
+	}
+}
+
+// No permission_denials field, or an empty one, yields no denied tools.
+func TestParseClaudeCliResponse_NoPermissionDenials(t *testing.T) {
+	p := NewClaudeCliProvider("", "/workspace", nil, nil)
+	for _, output := range []string{
+		`{"type":"result","subtype":"success","is_error":false,"result":"hi","session_id":"s"}`,
+		`{"type":"result","subtype":"success","is_error":false,"result":"hi","session_id":"s","permission_denials":[]}`,
+	} {
+		resp, err := p.parseClaudeCliResponse(output)
+		if err != nil {
+			t.Fatalf("parseClaudeCliResponse() error = %v", err)
+		}
+		if len(resp.Status.DeniedTools) != 0 {
+			t.Errorf("DeniedTools = %v, want none", resp.Status.DeniedTools)
+		}
 	}
 }
 

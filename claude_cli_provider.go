@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -214,9 +215,24 @@ func (p *ClaudeCliProvider) parseClaudeCliResponse(output string) (*LLMResponse,
 			"cost_usd":      resp.TotalCostUSD,
 			"duration_ms":   resp.DurationMS,
 			"content_chars": len(strings.TrimSpace(content)),
+			"denied_tools":  len(resp.PermissionDenials),
 		})
 
 	return result, nil
+}
+
+// claudeCliDeniedTools returns the distinct tool names in the envelope's
+// permission_denials, in order of first refusal. Blank names are dropped.
+func claudeCliDeniedTools(resp *claudeCliJSONResponse) []string {
+	var out []string
+	for _, d := range resp.PermissionDenials {
+		name := strings.TrimSpace(d.ToolName)
+		if name == "" || slices.Contains(out, name) {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out
 }
 
 // buildClaudeCliStatus constructs a DispatchStatus from the parsed claude CLI response.
@@ -236,6 +252,7 @@ func buildClaudeCliStatus(resp *claudeCliJSONResponse) *DispatchStatus {
 	return &DispatchStatus{
 		Success:             !resp.IsError,
 		Model:               resolveClaudeCliPrimaryModel(resp),
+		DeniedTools:         claudeCliDeniedTools(resp),
 		NumTurns:            resp.NumTurns,
 		InputTokens:         resp.Usage.InputTokens,
 		OutputTokens:        resp.Usage.OutputTokens,
@@ -310,6 +327,16 @@ type claudeCliJSONResponse struct {
 	Model        string                            `json:"model"`
 	Usage        claudeCliUsageInfo                `json:"usage"`
 	ModelUsage   map[string]claudeCliModelUsageRow `json:"modelUsage"`
+	// PermissionDenials lists the tool calls the CLI's permission system
+	// refused during the run (print mode cannot prompt, so a call outside the
+	// allow rules, or one the auto-mode classifier could not judge, ends here).
+	PermissionDenials []claudeCliPermissionDenial `json:"permission_denials"`
+}
+
+// claudeCliPermissionDenial is one refused tool call in permission_denials.
+type claudeCliPermissionDenial struct {
+	ToolName  string `json:"tool_name"`
+	ToolUseID string `json:"tool_use_id"`
 }
 
 // claudeCliModelUsageRow captures one entry of the modelUsage map.

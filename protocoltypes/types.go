@@ -59,6 +59,11 @@ type DispatchStatus struct {
 	DurationMs          int64   `json:"duration_ms"`
 	BytesSent           int64   `json:"bytes_sent"`
 	BytesReceived       int64   `json:"bytes_received"`
+	// DeniedTools lists the tools an agentic CLI wanted to call but was refused
+	// by its own permission system during this request (the Claude CLI's
+	// permission_denials). The CLI still reports success and answers in prose,
+	// so the host needs this to tell a refused turn from a completed one.
+	DeniedTools []string `json:"denied_tools,omitempty"`
 }
 
 type ReasoningDetail struct {
