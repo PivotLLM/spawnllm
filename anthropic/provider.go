@@ -445,18 +445,33 @@ func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 		if desc := t.Function.Description; desc != "" {
 			tool.Description = anthropic.String(desc)
 		}
-		if req, ok := t.Function.Parameters["required"].([]any); ok {
-			required := make([]string, 0, len(req))
-			for _, r := range req {
-				if s, ok := r.(string); ok {
-					required = append(required, s)
-				}
-			}
+		if required := requiredNames(t.Function.Parameters["required"]); required != nil {
 			tool.InputSchema.Required = required
 		}
 		result = append(result, anthropic.ToolUnionParam{OfTool: &tool})
 	}
 	return result
+}
+
+// requiredNames returns the parameter names in a JSON schema "required" value.
+// Callers build schemas both as Go literals ([]string) and from decoded JSON
+// ([]any), so both are accepted; non-string elements are skipped. It returns
+// nil when the value is absent or of another type.
+func requiredNames(v any) []string {
+	switch req := v.(type) {
+	case []string:
+		return append([]string{}, req...)
+	case []any:
+		names := make([]string, 0, len(req))
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				names = append(names, s)
+			}
+		}
+		return names
+	default:
+		return nil
+	}
 }
 
 func parseResponse(resp *anthropic.Message) *LLMResponse {

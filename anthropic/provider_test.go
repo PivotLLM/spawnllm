@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync/atomic"
 	"testing"
 
@@ -337,4 +338,54 @@ func createAnthropicTestClient(baseURL, token string) *anthropic.Client {
 		anthropicoption.WithBaseURL(baseURL),
 	)
 	return &c
+}
+
+func TestTranslateTools_Required(t *testing.T) {
+	tests := []struct {
+		name     string
+		required any
+		want     []string
+	}{
+		{name: "string slice", required: []string{"city", "unit"}, want: []string{"city", "unit"}},
+		{name: "any slice", required: []any{"city", "unit"}, want: []string{"city", "unit"}},
+		{name: "any slice with non-strings", required: []any{"city", 7, nil, "unit"}, want: []string{"city", "unit"}},
+		{name: "wrong type", required: "city", want: nil},
+		{name: "absent", required: nil, want: nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			params := map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"city": map[string]any{"type": "string"},
+					"unit": map[string]any{"type": "string"},
+				},
+			}
+			if tt.required != nil {
+				params["required"] = tt.required
+			}
+			tools := translateTools([]ToolDefinition{{
+				Type:     "function",
+				Function: ToolFunctionDefinition{Name: "get_weather", Parameters: params},
+			}})
+			if len(tools) != 1 || tools[0].OfTool == nil {
+				t.Fatalf("translateTools() = %+v, want one tool", tools)
+			}
+
+			// Check the wire form the SDK sends, not only the struct field.
+			raw, err := json.Marshal(tools[0].OfTool.InputSchema)
+			if err != nil {
+				t.Fatalf("json.Marshal(InputSchema) error: %v", err)
+			}
+			var schema struct {
+				Required []string `json:"required"`
+			}
+			if err := json.Unmarshal(raw, &schema); err != nil {
+				t.Fatalf("json.Unmarshal(%s) error: %v", raw, err)
+			}
+			if !slices.Equal(schema.Required, tt.want) {
+				t.Errorf("required = %v, want %v (schema %s)", schema.Required, tt.want, raw)
+			}
+		})
+	}
 }
