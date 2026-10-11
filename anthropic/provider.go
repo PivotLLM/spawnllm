@@ -392,45 +392,11 @@ func applyThinkingConfig(params *anthropic.MessageNewParams, level string) {
 		return
 	}
 
-	budget := int64(levelToBudget(level))
-	if budget <= 0 {
+	budget, ok := common.ClampThinkingBudget(common.ThinkingBudget(level), params.MaxTokens, "anthropic")
+	if !ok {
 		return
 	}
-
-	// budget_tokens must be < max_tokens; clamp to respect user's max_tokens setting.
-	if budget >= params.MaxTokens {
-		logger.WarnCF("anthropic", "budget_tokens clamped to max_tokens-1",
-			map[string]any{"budget_tokens": budget, "clamped_to": params.MaxTokens - 1})
-		budget = params.MaxTokens - 1
-	} else if budget > params.MaxTokens*80/100 {
-		logger.WarnCF("anthropic", "thinking budget exceeds 80% of max_tokens, output may be truncated",
-			map[string]any{"budget_tokens": budget, "max_tokens": params.MaxTokens})
-	}
 	params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-}
-
-// levelToBudget maps a thinking level to budget_tokens.
-// Values are based on Anthropic's recommendations and community best practices:
-//
-//	low    =  4,096  — simple reasoning, quick debugging (Claude Code "think")
-//	medium = 16,384  — Anthropic recommended sweet spot for most tasks
-//	high   = 32,000  — complex architecture, deep analysis (diminishing returns above this)
-//	xhigh  = 64,000  — extreme reasoning, research problems, benchmarks
-//
-// Note: For Claude 4.6+, prefer adaptive thinking over manual budget_tokens.
-func levelToBudget(level string) int {
-	switch level {
-	case "low":
-		return 4096
-	case "medium":
-		return 16384
-	case "high":
-		return 32000
-	case "xhigh":
-		return 64000
-	default:
-		return 0
-	}
 }
 
 func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {

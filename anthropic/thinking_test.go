@@ -94,29 +94,6 @@ func TestApplyThinkingConfig_UnknownLevel(t *testing.T) {
 	}
 }
 
-func TestLevelToBudget(t *testing.T) {
-	tests := []struct {
-		name  string
-		level string
-		want  int
-	}{
-		{"low", "low", 4096},
-		{"medium", "medium", 16384},
-		{"high", "high", 32000},
-		{"xhigh", "xhigh", 64000},
-		{"off", "off", 0},
-		{"empty", "", 0},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := levelToBudget(tt.level); got != tt.want {
-				t.Errorf("levelToBudget(%q) = %d, want %d", tt.level, got, tt.want)
-			}
-		})
-	}
-}
-
 func TestBuildParams_ThinkingClearsTemperature(t *testing.T) {
 	msgs := []Message{{Role: "user", Content: "hello"}}
 	opts := map[string]any{

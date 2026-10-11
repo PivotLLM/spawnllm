@@ -2,6 +2,7 @@ package spawnllm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -146,4 +147,38 @@ func TestRun_CLI_SingleCallNoLoop(t *testing.T) {
 	if prov.calls != 1 {
 		t.Errorf("CLI provider should be called exactly once, got %d", prov.calls)
 	}
+}
+
+// TestRun_APILoop_KeepsAnthropicThinking checks that the assistant tool-call
+// turn carries the response's Anthropic thinking blocks, which the API needs
+// back on the next iteration when thinking is on.
+func TestRun_APILoop_KeepsAnthropicThinking(t *testing.T) {
+	tool := toolspec.ToolDefinition{
+		Name: "echo",
+		Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
+			return &toolspec.Result{ForLLM: "ok"}, nil
+		},
+	}
+	blocks := []json.RawMessage{json.RawMessage(`{"type":"thinking","thinking":"t","signature":"s"}`)}
+	prov := &scriptedProvider{resps: []*LLMResponse{
+		{ToolCalls: []ToolCall{{ID: "c1", Name: "echo"}}, AnthropicThinking: blocks},
+		{Content: "done"},
+	}}
+	w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	res, err := w.Run(context.Background(), []Message{{Role: "user", Content: "go"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	for _, m := range res.Messages {
+		if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+			if len(m.AnthropicThinking) != 1 || string(m.AnthropicThinking[0]) != string(blocks[0]) {
+				t.Fatalf("assistant turn AnthropicThinking = %s, want %s", m.AnthropicThinking, blocks)
+			}
+			return
+		}
+	}
+	t.Fatal("no assistant tool-call turn in transcript")
 }

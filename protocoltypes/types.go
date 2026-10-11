@@ -41,6 +41,11 @@ type LLMResponse struct {
 	// function_call they produced on the next turn. Reasoning models + tools
 	// only; empty otherwise.
 	ResponsesReasoning []json.RawMessage `json:"responses_reasoning,omitempty"`
+	// AnthropicThinking carries the Anthropic thinking and redacted_thinking
+	// content blocks of this response verbatim (incl. signature / data). The
+	// API requires them back, unmodified, at the start of the assistant turn
+	// when a tool-use loop continues with thinking on. Empty without thinking.
+	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
 }
 
 // DispatchStatus is populated by each provider on every Chat() return
@@ -118,6 +123,10 @@ type Message struct {
 	// assistant turn, replayed before its function_call items on the next request
 	// (Responses API, reasoning models + tools). Persisted with history.
 	ResponsesReasoning []json.RawMessage `json:"responses_reasoning,omitempty"`
+	// AnthropicThinking carries this assistant turn's Anthropic thinking and
+	// redacted_thinking blocks verbatim, sent back before its text and tool_use
+	// blocks on the next request when thinking is on. Persisted with history.
+	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
 }
 
 type ToolDefinition struct {
