@@ -728,23 +728,46 @@ func isOpenRouterBase(apiBase string) bool {
 	return strings.Contains(strings.ToLower(apiBase), "openrouter.ai")
 }
 
+// normalizeModel strips a leading vendor prefix ("deepseek/deepseek-chat" →
+// "deepseek-chat") only when apiBase is that vendor's own endpoint, whose ids
+// never carry the prefix. Every other host gets the model id unchanged: hosts
+// such as OpenRouter or Avian use vendor-prefixed ids ("deepseek/deepseek-v3.2")
+// as the real id. Groq and NVIDIA are never stripped because their own ids use
+// those prefixes ("groq/compound", "nvidia/llama-3.1-nemotron-70b-instruct").
 func normalizeModel(model, apiBase string) string {
 	before, after, ok := strings.Cut(model, "/")
 	if !ok {
 		return model
 	}
-
-	if isOpenRouterBase(apiBase) {
-		return model
-	}
-
-	prefix := strings.ToLower(before)
-	switch prefix {
-	case "litellm", "moonshot", "nvidia", "groq", "ollama", "deepseek", "google",
-		"openrouter", "mistral":
+	if baseBelongsTo(strings.ToLower(before), apiBase) {
 		return after
+	}
+	return model
+}
+
+// baseBelongsTo reports whether apiBase is the endpoint of the vendor named by
+// prefix. Local servers are recognised by their default port.
+func baseBelongsTo(prefix, apiBase string) bool {
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	switch prefix {
+	case "deepseek":
+		return host == "api.deepseek.com"
+	case "moonshot":
+		return host == "api.moonshot.cn" || host == "api.moonshot.ai"
+	case "mistral":
+		return host == "api.mistral.ai"
+	case "google":
+		return host == "generativelanguage.googleapis.com"
+	case "ollama":
+		return u.Port() == "11434"
+	case "litellm":
+		return u.Port() == "4000"
 	default:
-		return model
+		return false
 	}
 }
 
