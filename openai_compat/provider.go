@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"os"
@@ -346,6 +347,12 @@ func (p *Provider) Chat(
 	// through (e.g. a key claw added after the config validator was last
 	// updated).
 	for k, v := range p.extraBody {
+		if k == "provider" {
+			// The operator's OpenRouter routing preferences are always sent;
+			// spawnllm's own keys (require_parameters) fill only the gaps.
+			requestBody[k] = mergeProviderObject(v, requestBody[k])
+			continue
+		}
 		if _, clash := requestBody[k]; clash {
 			warnFn("openai_compat", "extra_body key collides with claw-managed request field; skipping",
 				map[string]any{
@@ -693,6 +700,30 @@ func serializeMessages(messages []Message, strictCompat bool) []any {
 // OpenRouter-specific request extensions (the `provider` routing hint, model
 // prefixes) are gated on this — other OpenAI-compatible endpoints reject unknown
 // fields.
+// mergeProviderObject combines the operator's extra_body "provider" value with
+// the one spawnllm built. Every key the operator set is kept as set; a key
+// spawnllm added is included only when the operator did not set it. When
+// either value is not an object, the operator's value is sent unchanged. The
+// operator's map is copied, never modified, since it is shared by every
+// request.
+func mergeProviderObject(user, managed any) any {
+	userObj, ok := user.(map[string]any)
+	if !ok {
+		return user
+	}
+	managedObj, ok := managed.(map[string]any)
+	if !ok {
+		return user
+	}
+	merged := maps.Clone(userObj)
+	for k, v := range managedObj {
+		if _, set := merged[k]; !set {
+			merged[k] = v
+		}
+	}
+	return merged
+}
+
 func isOpenRouterBase(apiBase string) bool {
 	return strings.Contains(strings.ToLower(apiBase), "openrouter.ai")
 }
