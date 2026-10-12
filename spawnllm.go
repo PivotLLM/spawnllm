@@ -188,10 +188,11 @@ func (w *Worker) Run(ctx context.Context, messages []Message) (*Result, error) {
 			return &Result{Content: resp.Content, Messages: msgs, Iterations: i}, nil
 		}
 		msgs = append(msgs, Message{
-			Role:              "assistant",
-			Content:           resp.Content,
-			ToolCalls:         resp.ToolCalls,
-			AnthropicThinking: resp.AnthropicThinking,
+			Role:               "assistant",
+			Content:            resp.Content,
+			ToolCalls:          resp.ToolCalls,
+			AnthropicThinking:  resp.AnthropicThinking,
+			ResponsesReasoning: resp.ResponsesReasoning,
 		})
 		for _, tc := range resp.ToolCalls {
 			msgs = append(msgs, Message{
