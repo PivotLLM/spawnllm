@@ -48,7 +48,7 @@ type Provider struct {
 }
 
 // SupportsThinking implements spawnllm.ThinkingCapable: the "thinking_level"
-// option turns on Anthropic extended or adaptive thinking.
+// option turns on Anthropic adaptive thinking.
 func (p *Provider) SupportsThinking() bool { return true }
 
 // NewProvider creates a new Anthropic Messages API provider.
@@ -502,9 +502,9 @@ func buildRequestBody(
 		result["temperature"] = temp
 	}
 
-	// Extended / adaptive thinking. When it is on, temperature must be unset
-	// and the thinking blocks of earlier assistant turns are sent back.
-	thinkingOn := applyThinking(result, options, int64(maxTokens))
+	// Adaptive thinking. When it is on, temperature must be unset and the
+	// thinking blocks of earlier assistant turns are sent back.
+	thinkingOn := applyThinking(result, options)
 
 	// Process messages
 	var systemPrompt string
@@ -608,29 +608,27 @@ func buildRequestBody(
 }
 
 // applyThinking sets the thinking parameters for options["thinking_level"],
-// with the same mapping as the SDK-based anthropic provider:
+// with the same mapping as the SDK-based anthropic provider
+// (common.AnthropicThinking):
 //
-//	"adaptive"                → thinking {type: adaptive} + output_config {effort: high}
-//	"low/medium/high/xhigh"   → thinking {type: enabled, budget_tokens: 4096/16384/32000/64000}
+//	"adaptive"                          → thinking {type: adaptive}
+//	"low/medium/high/xhigh/max"         → thinking {type: adaptive} + output_config {effort: <level>}
+//	"", "off" or an unknown level       → nothing
 //
-// The budget is kept below max_tokens; thinking is not sent when max_tokens
-// leaves no room for the API minimum, nor for "off", "" or an unknown level.
 // Temperature is removed whenever thinking is sent, as the API requires. It
 // reports whether thinking was sent.
-func applyThinking(body map[string]any, options map[string]any, maxTokens int64) bool {
+func applyThinking(body map[string]any, options map[string]any) bool {
 	level, ok := options["thinking_level"].(string)
-	if !ok || level == "" || level == "off" {
+	if !ok {
 		return false
 	}
-	if level == "adaptive" {
-		body["thinking"] = map[string]any{"type": "adaptive"}
-		body["output_config"] = map[string]any{"effort": "high"}
-	} else {
-		budget, ok := common.ClampThinkingBudget(common.ThinkingBudget(level), maxTokens, "anthropic_messages")
-		if !ok {
-			return false
-		}
-		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	effort, on := common.AnthropicThinking(level)
+	if !on {
+		return false
+	}
+	body["thinking"] = map[string]any{"type": "adaptive"}
+	if effort != "" {
+		body["output_config"] = map[string]any{"effort": effort}
 	}
 	if _, set := body["temperature"]; set {
 		logger.DebugCF("anthropic_messages", "temperature cleared because thinking is enabled",
