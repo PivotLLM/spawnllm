@@ -269,6 +269,35 @@ func buildParams(
 	model string,
 	options map[string]any,
 ) (anthropic.MessageNewParams, error) {
+	maxTokens := int64(4096)
+	if mt, ok := options["max_tokens"].(int); ok {
+		maxTokens = int64(mt)
+	}
+
+	// Normalize model ID: Anthropic API uses hyphens (claude-sonnet-4-6),
+	// but config may use dots (claude-sonnet-4.6).
+	apiModel := strings.ReplaceAll(model, ".", "-")
+
+	params := anthropic.MessageNewParams{
+		Model:     apiModel,
+		MaxTokens: maxTokens,
+	}
+
+	if temp, ok := options["temperature"].(float64); ok {
+		params.Temperature = anthropic.Float(temp)
+	}
+
+	// Extended Thinking / Adaptive Thinking
+	// The thinking_level value directly determines the API parameter format:
+	//   "adaptive" → {thinking: {type: "adaptive"}} + output_config.effort
+	//   "low/medium/high/xhigh" → {thinking: {type: "enabled", budget_tokens: N}}
+	// Decided before the messages are built: while thinking is on, each
+	// assistant turn's thinking blocks are sent back.
+	thinkingOn := false
+	if level, ok := options["thinking_level"].(string); ok && level != "" && level != "off" {
+		thinkingOn = applyThinkingConfig(&params, level)
+	}
+
 	var system []anthropic.TextBlockParam
 	var anthropicMessages []anthropic.MessageParam
 
@@ -300,8 +329,12 @@ func buildParams(
 				)
 			}
 		case "assistant":
+			var thinking []anthropic.ContentBlockParamUnion
+			if thinkingOn {
+				thinking = thinkingBlockParams(msg.AnthropicThinking)
+			}
 			if len(msg.ToolCalls) > 0 {
-				var blocks []anthropic.ContentBlockParamUnion
+				blocks := thinking
 				if msg.Content != "" {
 					blocks = append(blocks, anthropic.NewTextBlock(msg.Content))
 				}
@@ -320,7 +353,7 @@ func buildParams(
 				anthropicMessages = append(anthropicMessages, anthropic.NewAssistantMessage(blocks...))
 			} else {
 				anthropicMessages = append(anthropicMessages,
-					anthropic.NewAssistantMessage(anthropic.NewTextBlock(msg.Content)),
+					anthropic.NewAssistantMessage(append(thinking, anthropic.NewTextBlock(msg.Content))...),
 				)
 			}
 		case "tool":
@@ -330,42 +363,61 @@ func buildParams(
 		}
 	}
 
-	maxTokens := int64(4096)
-	if mt, ok := options["max_tokens"].(int); ok {
-		maxTokens = int64(mt)
-	}
-
-	// Normalize model ID: Anthropic API uses hyphens (claude-sonnet-4-6),
-	// but config may use dots (claude-sonnet-4.6).
-	apiModel := strings.ReplaceAll(model, ".", "-")
-
-	params := anthropic.MessageNewParams{
-		Model:     apiModel,
-		Messages:  anthropicMessages,
-		MaxTokens: maxTokens,
-	}
+	params.Messages = anthropicMessages
 
 	if len(system) > 0 {
 		params.System = system
-	}
-
-	if temp, ok := options["temperature"].(float64); ok {
-		params.Temperature = anthropic.Float(temp)
 	}
 
 	if len(tools) > 0 {
 		params.Tools = translateTools(tools)
 	}
 
-	// Extended Thinking / Adaptive Thinking
-	// The thinking_level value directly determines the API parameter format:
-	//   "adaptive" → {thinking: {type: "adaptive"}} + output_config.effort
-	//   "low/medium/high/xhigh" → {thinking: {type: "enabled", budget_tokens: N}}
-	if level, ok := options["thinking_level"].(string); ok && level != "" && level != "off" {
-		applyThinkingConfig(&params, level)
-	}
-
 	return params, nil
+}
+
+// thinkingBlock is the wire form of a thinking or redacted_thinking block, as
+// kept in LLMResponse/Message.AnthropicThinking.
+type thinkingBlock struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
+	Data      string `json:"data,omitempty"`
+}
+
+// thinkingBlockParams turns an assistant turn's kept thinking blocks back into
+// request blocks, unchanged (thinking text, signature, redacted data).
+func thinkingBlockParams(raw []json.RawMessage) []anthropic.ContentBlockParamUnion {
+	var blocks []anthropic.ContentBlockParamUnion
+	for _, r := range raw {
+		var tb thinkingBlock
+		if err := json.Unmarshal(r, &tb); err != nil {
+			logger.WarnCF("anthropic", "skipping unreadable thinking block from history",
+				map[string]any{"error": err.Error()})
+			continue
+		}
+		switch tb.Type {
+		case "thinking":
+			blocks = append(blocks, anthropic.NewThinkingBlock(tb.Signature, tb.Thinking))
+		case "redacted_thinking":
+			blocks = append(blocks, anthropic.NewRedactedThinkingBlock(tb.Data))
+		default:
+			logger.WarnCF("anthropic", "skipping non-thinking block in AnthropicThinking",
+				map[string]any{"type": tb.Type})
+		}
+	}
+	return blocks
+}
+
+// thinkingBlockJSON is the kept form of a response's thinking or
+// redacted_thinking block.
+func thinkingBlockJSON(tb thinkingBlock) json.RawMessage {
+	data, err := json.Marshal(tb)
+	if err != nil {
+		// A struct of strings cannot fail to marshal.
+		return nil
+	}
+	return data
 }
 
 // applyThinkingConfig sets thinking parameters based on the level value.
@@ -374,7 +426,9 @@ func buildParams(
 //
 // Anthropic API constraint: temperature must not be set when thinking is enabled.
 // budget_tokens must be strictly less than max_tokens.
-func applyThinkingConfig(params *anthropic.MessageNewParams, level string) {
+//
+// It reports whether thinking was sent.
+func applyThinkingConfig(params *anthropic.MessageNewParams, level string) bool {
 	// Anthropic API rejects requests with temperature set alongside thinking.
 	// Reset to zero value (omitted from JSON serialization).
 	if params.Temperature.Valid() {
@@ -389,48 +443,15 @@ func applyThinkingConfig(params *anthropic.MessageNewParams, level string) {
 		params.OutputConfig = anthropic.OutputConfigParam{
 			Effort: anthropic.OutputConfigEffortHigh,
 		}
-		return
+		return true
 	}
 
-	budget := int64(levelToBudget(level))
-	if budget <= 0 {
-		return
-	}
-
-	// budget_tokens must be < max_tokens; clamp to respect user's max_tokens setting.
-	if budget >= params.MaxTokens {
-		logger.WarnCF("anthropic", "budget_tokens clamped to max_tokens-1",
-			map[string]any{"budget_tokens": budget, "clamped_to": params.MaxTokens - 1})
-		budget = params.MaxTokens - 1
-	} else if budget > params.MaxTokens*80/100 {
-		logger.WarnCF("anthropic", "thinking budget exceeds 80% of max_tokens, output may be truncated",
-			map[string]any{"budget_tokens": budget, "max_tokens": params.MaxTokens})
+	budget, ok := common.ClampThinkingBudget(common.ThinkingBudget(level), params.MaxTokens, "anthropic")
+	if !ok {
+		return false
 	}
 	params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
-}
-
-// levelToBudget maps a thinking level to budget_tokens.
-// Values are based on Anthropic's recommendations and community best practices:
-//
-//	low    =  4,096  — simple reasoning, quick debugging (Claude Code "think")
-//	medium = 16,384  — Anthropic recommended sweet spot for most tasks
-//	high   = 32,000  — complex architecture, deep analysis (diminishing returns above this)
-//	xhigh  = 64,000  — extreme reasoning, research problems, benchmarks
-//
-// Note: For Claude 4.6+, prefer adaptive thinking over manual budget_tokens.
-func levelToBudget(level string) int {
-	switch level {
-	case "low":
-		return 4096
-	case "medium":
-		return 16384
-	case "high":
-		return 32000
-	case "xhigh":
-		return 64000
-	default:
-		return 0
-	}
+	return true
 }
 
 func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
@@ -478,12 +499,20 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 	var content strings.Builder
 	var reasoning strings.Builder
 	var toolCalls []ToolCall
+	var thinking []json.RawMessage
 
 	for _, block := range resp.Content {
 		switch block.Type {
 		case "thinking":
-			tb := block.AsThinking()
-			reasoning.WriteString(tb.Thinking)
+			// The union's own fields, which streaming deltas update directly.
+			reasoning.WriteString(block.Thinking)
+			thinking = append(thinking, thinkingBlockJSON(thinkingBlock{
+				Type: "thinking", Thinking: block.Thinking, Signature: block.Signature,
+			}))
+		case "redacted_thinking":
+			thinking = append(thinking, thinkingBlockJSON(thinkingBlock{
+				Type: "redacted_thinking", Data: block.Data,
+			}))
 		case "text":
 			tb := block.AsText()
 			content.WriteString(tb.Text)
@@ -529,11 +558,12 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 	}
 
 	return &LLMResponse{
-		Content:      content.String(),
-		Reasoning:    reasoning.String(),
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		Normal:       finishReason == "stop" || finishReason == "tool_calls",
+		Content:           content.String(),
+		Reasoning:         reasoning.String(),
+		AnthropicThinking: thinking,
+		ToolCalls:         toolCalls,
+		FinishReason:      finishReason,
+		Normal:            finishReason == "stop" || finishReason == "tool_calls",
 		Usage: &UsageInfo{
 			PromptTokens:     int(resp.Usage.InputTokens),
 			CompletionTokens: int(resp.Usage.OutputTokens),

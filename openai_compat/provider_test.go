@@ -409,7 +409,7 @@ func TestProviderChat_LargeHTMLResponsePreviewIsTruncated(t *testing.T) {
 	}
 }
 
-func TestProviderChat_StripsMoonshotPrefixAndNormalizesKimiTemperature(t *testing.T) {
+func TestProviderChat_KeepsModelIDAndNormalizesKimiTemperature(t *testing.T) {
 	var requestBody map[string]any
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -444,8 +444,8 @@ func TestProviderChat_StripsMoonshotPrefixAndNormalizesKimiTemperature(t *testin
 		t.Fatalf("Chat() error = %v", err)
 	}
 
-	if requestBody["model"] != "kimi-k2.5" {
-		t.Fatalf("model = %v, want kimi-k2.5", requestBody["model"])
+	if requestBody["model"] != "moonshot/kimi-k2.5" {
+		t.Fatalf("model = %v, want moonshot/kimi-k2.5", requestBody["model"])
 	}
 	if requestBody["temperature"] != 1.0 {
 		t.Fatalf("temperature = %v, want 1.0", requestBody["temperature"])
@@ -540,71 +540,6 @@ func TestProviderChat_NoDropParamsKeepsTemperature(t *testing.T) {
 	}
 }
 
-func TestProviderChat_StripsProtocolPrefixes(t *testing.T) {
-	tests := []struct {
-		name      string
-		input     string
-		wantModel string
-	}{
-		{
-			name:      "strips litellm prefix and preserves proxy model name",
-			input:     "litellm/my-proxy-alias",
-			wantModel: "my-proxy-alias",
-		},
-		{
-			name:      "strips groq prefix and keeps nested model",
-			input:     "groq/openai/gpt-oss-120b",
-			wantModel: "openai/gpt-oss-120b",
-		},
-		{
-			name:      "strips ollama prefix",
-			input:     "ollama/qwen2.5:14b",
-			wantModel: "qwen2.5:14b",
-		},
-		{
-			name:      "strips deepseek prefix",
-			input:     "deepseek/deepseek-chat",
-			wantModel: "deepseek-chat",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			var requestBody map[string]any
-
-			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if err := json.NewDecoder(r.Body).Decode(&requestBody); err != nil {
-					http.Error(w, err.Error(), http.StatusBadRequest)
-					return
-				}
-				resp := map[string]any{
-					"choices": []map[string]any{
-						{
-							"message":       map[string]any{"content": "ok"},
-							"finish_reason": "stop",
-						},
-					},
-				}
-				w.Header().Set("Content-Type", "application/json")
-				if err := json.NewEncoder(w).Encode(resp); err != nil {
-					t.Errorf("encode response: %v", err)
-				}
-			}))
-			defer server.Close()
-
-			p := NewProvider("key", server.URL, "")
-			_, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, tt.input, nil)
-			if err != nil {
-				t.Fatalf("Chat() error = %v", err)
-			}
-
-			if requestBody["model"] != tt.wantModel {
-				t.Fatalf("model = %v, want %s", requestBody["model"], tt.wantModel)
-			}
-		})
-	}
-}
-
 func TestProvider_ProxyConfigured(t *testing.T) {
 	proxyURL := "http://127.0.0.1:8080"
 	p := NewProvider("key", "https://example.com", proxyURL)
@@ -667,12 +602,66 @@ func TestProviderChat_AcceptsNumericOptionTypes(t *testing.T) {
 	}
 }
 
-func TestNormalizeModel_UsesAPIBase(t *testing.T) {
-	if got := normalizeModel("deepseek/deepseek-chat", "https://api.deepseek.com/v1"); got != "deepseek-chat" {
-		t.Fatalf("normalizeModel(deepseek) = %q, want %q", got, "deepseek-chat")
+// TestProviderChat_ForwardsModelIDUnchanged checks that the model id is sent
+// exactly as given on every base URL: provider and model are supplied
+// separately, so a slash in the id is part of the id.
+func TestProviderChat_ForwardsModelIDUnchanged(t *testing.T) {
+	bases := []string{
+		"https://api.avian.io/v1",
+		"https://api.deepseek.com/v1",
+		"https://api.groq.com/openai/v1",
+		"https://openrouter.ai/api/v1",
+		"https://api.moonshot.cn/v1",
+		"https://integrate.api.nvidia.com/v1",
+		"http://localhost:11434/v1",
 	}
-	if got := normalizeModel("openrouter/auto", "https://openrouter.ai/api/v1"); got != "openrouter/auto" {
-		t.Fatalf("normalizeModel(openrouter) = %q, want %q", got, "openrouter/auto")
+	models := []string{
+		"deepseek/deepseek-v3.2",
+		"groq/compound",
+		"nvidia/llama-3.1-nemotron-70b-instruct",
+		"openrouter/auto",
+		"moonshot/kimi-k2.5",
+		"gpt-4o",
+	}
+
+	var gotModel any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		gotModel = body["model"]
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(map[string]any{
+			"choices": []map[string]any{{
+				"message":       map[string]any{"content": "ok"},
+				"finish_reason": "stop",
+			}},
+		}); err != nil {
+			t.Errorf("encode response: %v", err)
+		}
+	}))
+	defer server.Close()
+	target, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatalf("parse server URL: %v", err)
+	}
+
+	for _, base := range bases {
+		for _, model := range models {
+			t.Run(base+" "+model, func(t *testing.T) {
+				gotModel = nil
+				p := NewProvider("key", base, "")
+				p.httpClient.Transport = redirectTransport{target: target}
+				if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, model, nil); err != nil {
+					t.Fatalf("Chat() error = %v", err)
+				}
+				if gotModel != model {
+					t.Fatalf("model = %v, want %q", gotModel, model)
+				}
+			})
+		}
 	}
 }
 

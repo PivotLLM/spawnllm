@@ -47,6 +47,10 @@ type Provider struct {
 	httpClient *http.Client
 }
 
+// SupportsThinking implements spawnllm.ThinkingCapable: the "thinking_level"
+// option turns on Anthropic extended or adaptive thinking.
+func (p *Provider) SupportsThinking() bool { return true }
+
 // NewProvider creates a new Anthropic Messages API provider.
 func NewProvider(apiKey, apiBase string) *Provider {
 	return NewProviderWithTimeout(apiKey, apiBase, 0)
@@ -233,11 +237,14 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // its stream index. text blocks collect text; tool_use blocks collect the id,
 // name, and the input_json_delta fragments that reassemble the arguments JSON.
 type streamContentBlock struct {
-	typ   string
-	text  strings.Builder
-	id    string
-	name  string
-	input strings.Builder
+	typ       string
+	text      strings.Builder
+	id        string
+	name      string
+	input     strings.Builder
+	thinking  strings.Builder
+	signature strings.Builder
+	data      string // redacted_thinking payload, complete in content_block_start
 }
 
 // accumulateMessagesStream reads an Anthropic Messages SSE stream, firing cb for
@@ -292,6 +299,7 @@ func accumulateMessagesStream(r io.Reader, cb common.TextDeltaFunc) ([]byte, err
 				blk.typ = evt.ContentBlock.Type
 				blk.id = evt.ContentBlock.ID
 				blk.name = evt.ContentBlock.Name
+				blk.data = evt.ContentBlock.Data
 			}
 			byIndex[evt.Index] = blk
 			order = append(order, evt.Index)
@@ -312,6 +320,11 @@ func accumulateMessagesStream(r io.Reader, cb common.TextDeltaFunc) ([]byte, err
 				// Tool-call argument fragments accumulate but are NOT surfaced
 				// via cb; only assistant text is delivered as deltas.
 				blk.input.WriteString(evt.Delta.PartialJSON)
+			case "thinking_delta":
+				// Reasoning is accumulated for the response, never surfaced as text.
+				blk.thinking.WriteString(evt.Delta.Thinking)
+			case "signature_delta":
+				blk.signature.WriteString(evt.Delta.Signature)
 			}
 		case "message_delta":
 			if evt.Delta.StopReason != "" {
@@ -342,6 +355,17 @@ func reconstructMessagesBody(
 	for _, idx := range order {
 		blk := byIndex[idx]
 		switch blk.typ {
+		case "thinking":
+			content = append(content, map[string]any{
+				"type":      "thinking",
+				"thinking":  blk.thinking.String(),
+				"signature": blk.signature.String(),
+			})
+		case "redacted_thinking":
+			content = append(content, map[string]any{
+				"type": "redacted_thinking",
+				"data": blk.data,
+			})
 		case "tool_use":
 			var input map[string]any
 			raw := blk.input.String()
@@ -399,11 +423,14 @@ type messagesStreamEvent struct {
 		Type string `json:"type"`
 		ID   string `json:"id"`
 		Name string `json:"name"`
+		Data string `json:"data"`
 	} `json:"content_block"`
 	Delta struct {
 		Type        string `json:"type"`
 		Text        string `json:"text"`
 		PartialJSON string `json:"partial_json"`
+		Thinking    string `json:"thinking"`
+		Signature   string `json:"signature"`
 		StopReason  string `json:"stop_reason"`
 	} `json:"delta"`
 	Usage *struct {
@@ -475,6 +502,10 @@ func buildRequestBody(
 		result["temperature"] = temp
 	}
 
+	// Extended / adaptive thinking. When it is on, temperature must be unset
+	// and the thinking blocks of earlier assistant turns are sent back.
+	thinkingOn := applyThinking(result, options, int64(maxTokens))
+
 	// Process messages
 	var systemPrompt string
 	var apiMessages []any
@@ -513,6 +544,13 @@ func buildRequestBody(
 
 		case "assistant":
 			content := []any{}
+
+			// Thinking blocks go first, verbatim (signatures must be unchanged).
+			if thinkingOn {
+				for _, blk := range msg.AnthropicThinking {
+					content = append(content, blk)
+				}
+			}
 
 			// Add text content if present
 			if msg.Content != "" {
@@ -569,6 +607,39 @@ func buildRequestBody(
 	return result, nil
 }
 
+// applyThinking sets the thinking parameters for options["thinking_level"],
+// with the same mapping as the SDK-based anthropic provider:
+//
+//	"adaptive"                → thinking {type: adaptive} + output_config {effort: high}
+//	"low/medium/high/xhigh"   → thinking {type: enabled, budget_tokens: 4096/16384/32000/64000}
+//
+// The budget is kept below max_tokens; thinking is not sent when max_tokens
+// leaves no room for the API minimum, nor for "off", "" or an unknown level.
+// Temperature is removed whenever thinking is sent, as the API requires. It
+// reports whether thinking was sent.
+func applyThinking(body map[string]any, options map[string]any, maxTokens int64) bool {
+	level, ok := options["thinking_level"].(string)
+	if !ok || level == "" || level == "off" {
+		return false
+	}
+	if level == "adaptive" {
+		body["thinking"] = map[string]any{"type": "adaptive"}
+		body["output_config"] = map[string]any{"effort": "high"}
+	} else {
+		budget, ok := common.ClampThinkingBudget(common.ThinkingBudget(level), maxTokens, "anthropic_messages")
+		if !ok {
+			return false
+		}
+		body["thinking"] = map[string]any{"type": "enabled", "budget_tokens": budget}
+	}
+	if _, set := body["temperature"]; set {
+		logger.DebugCF("anthropic_messages", "temperature cleared because thinking is enabled",
+			map[string]any{"level": level})
+		delete(body, "temperature")
+	}
+	return true
+}
+
 // buildTools converts tool definitions to Anthropic format.
 func buildTools(tools []ToolDefinition) []any {
 	result := make([]any, len(tools))
@@ -589,13 +660,28 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 	if err := json.Unmarshal(body, &resp); err != nil {
 		return nil, fmt.Errorf("parsing JSON response: %w", err)
 	}
+	// The same content blocks verbatim, so thinking blocks can be sent back
+	// byte for byte.
+	var raw struct {
+		Content []json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return nil, fmt.Errorf("parsing JSON response: %w", err)
+	}
 
 	// Extract content and tool calls
 	var content strings.Builder
+	var reasoning strings.Builder
+	var thinking []json.RawMessage
 	toolCalls := make([]ToolCall, 0) // Initialize as empty slice (not nil) for consistent JSON serialization
 
-	for _, block := range resp.Content {
+	for i, block := range resp.Content {
 		switch block.Type {
+		case "thinking", "redacted_thinking":
+			reasoning.WriteString(block.Thinking)
+			if i < len(raw.Content) {
+				thinking = append(thinking, raw.Content[i])
+			}
 		case "text":
 			content.WriteString(block.Text)
 		case "tool_use":
@@ -641,10 +727,12 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 	}
 
 	return &LLMResponse{
-		Content:      content.String(),
-		ToolCalls:    toolCalls,
-		FinishReason: finishReason,
-		Normal:       finishReason == "stop" || finishReason == "tool_calls",
+		Content:           content.String(),
+		Reasoning:         reasoning.String(),
+		AnthropicThinking: thinking,
+		ToolCalls:         toolCalls,
+		FinishReason:      finishReason,
+		Normal:            finishReason == "stop" || finishReason == "tool_calls",
 		Usage: &UsageInfo{
 			PromptTokens:     int(resp.Usage.InputTokens),
 			CompletionTokens: int(resp.Usage.OutputTokens),
@@ -722,11 +810,12 @@ type anthropicMessageResponse struct {
 }
 
 type contentBlock struct {
-	Type  string         `json:"type"`
-	Text  string         `json:"text,omitempty"`
-	ID    string         `json:"id,omitempty"`
-	Name  string         `json:"name,omitempty"`
-	Input map[string]any `json:"input,omitempty"`
+	Type     string         `json:"type"`
+	Text     string         `json:"text,omitempty"`
+	Thinking string         `json:"thinking,omitempty"`
+	ID       string         `json:"id,omitempty"`
+	Name     string         `json:"name,omitempty"`
+	Input    map[string]any `json:"input,omitempty"`
 }
 
 type usageInfo struct {

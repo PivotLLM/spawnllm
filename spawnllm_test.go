@@ -2,6 +2,7 @@ package spawnllm
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -145,5 +146,61 @@ func TestRun_CLI_SingleCallNoLoop(t *testing.T) {
 	}
 	if prov.calls != 1 {
 		t.Errorf("CLI provider should be called exactly once, got %d", prov.calls)
+	}
+}
+
+// TestRun_APILoop_KeepsReasoningState checks that the assistant tool-call turn
+// carries the response's opaque reasoning state, which the next iteration must
+// send back: Anthropic thinking blocks and OpenAI Responses reasoning items.
+func TestRun_APILoop_KeepsReasoningState(t *testing.T) {
+	thinking := []json.RawMessage{json.RawMessage(`{"type":"thinking","thinking":"t","signature":"s"}`)}
+	reasoning := []json.RawMessage{json.RawMessage(`{"type":"reasoning","id":"rs_1","encrypted_content":"enc"}`)}
+	tests := []struct {
+		name string
+		resp *LLMResponse
+		get  func(Message) []json.RawMessage
+		want []json.RawMessage
+	}{
+		{
+			name: "anthropic thinking",
+			resp: &LLMResponse{ToolCalls: []ToolCall{{ID: "c1", Name: "echo"}}, AnthropicThinking: thinking},
+			get:  func(m Message) []json.RawMessage { return m.AnthropicThinking },
+			want: thinking,
+		},
+		{
+			name: "responses reasoning",
+			resp: &LLMResponse{ToolCalls: []ToolCall{{ID: "c1", Name: "echo"}}, ResponsesReasoning: reasoning},
+			get:  func(m Message) []json.RawMessage { return m.ResponsesReasoning },
+			want: reasoning,
+		},
+	}
+	tool := toolspec.ToolDefinition{
+		Name: "echo",
+		Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
+			return &toolspec.Result{ForLLM: "ok"}, nil
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			prov := &scriptedProvider{resps: []*LLMResponse{tt.resp, {Content: "done"}}}
+			w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+			res, err := w.Run(context.Background(), []Message{{Role: "user", Content: "go"}})
+			if err != nil {
+				t.Fatalf("Run: %v", err)
+			}
+			for _, m := range res.Messages {
+				if m.Role == "assistant" && len(m.ToolCalls) > 0 {
+					got := tt.get(m)
+					if len(got) != len(tt.want) || string(got[0]) != string(tt.want[0]) {
+						t.Fatalf("assistant turn carries %s, want %s", got, tt.want)
+					}
+					return
+				}
+			}
+			t.Fatal("no assistant tool-call turn in transcript")
+		})
 	}
 }
