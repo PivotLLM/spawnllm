@@ -105,7 +105,7 @@ func SerializeMessages(messages []Message) []any {
 				Role:             m.Role,
 				Content:          m.Content,
 				ReasoningContent: m.ReasoningContent,
-				ToolCalls:        m.ToolCalls,
+				ToolCalls:        WireToolCalls(m.ToolCalls),
 				ToolCallID:       m.ToolCallID,
 			})
 			continue
@@ -138,7 +138,7 @@ func SerializeMessages(messages []Message) []any {
 			msg["tool_call_id"] = m.ToolCallID
 		}
 		if len(m.ToolCalls) > 0 {
-			msg["tool_calls"] = m.ToolCalls
+			msg["tool_calls"] = WireToolCalls(m.ToolCalls)
 		}
 		if m.ReasoningContent != "" {
 			msg["reasoning_content"] = m.ReasoningContent

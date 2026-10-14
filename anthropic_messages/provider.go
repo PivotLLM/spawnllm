@@ -567,8 +567,8 @@ func buildRequestBody(
 				toolUse := map[string]any{
 					"type":  "tool_use",
 					"id":    tc.ID,
-					"name":  tc.Name,
-					"input": tc.Arguments,
+					"name":  common.ToolCallName(tc),
+					"input": common.ToolCallInput(tc),
 				}
 				content = append(content, toolUse)
 			}

@@ -626,7 +626,7 @@ func normalizeAlternation(in []Message) []Message {
 func serializeMessages(messages []Message, strictCompat bool) []any {
 	out := make([]any, 0, len(messages))
 	for _, m := range messages {
-		toolCalls := m.ToolCalls
+		toolCalls := common.WireToolCalls(m.ToolCalls)
 		reasoningContent := m.ReasoningContent
 
 		if strictCompat {
