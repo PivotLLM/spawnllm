@@ -52,13 +52,12 @@ func TestChat_ThinkingLevelRequestBody(t *testing.T) {
 		level        any // nil = option absent
 		wantThinking any // nil = no thinking key
 		wantOutput   any // nil = no output_config key
-		wantTemp     bool
 	}{
-		{name: "absent", level: nil, wantTemp: true},
-		{name: "off", level: "off", wantTemp: true},
-		{name: "empty", level: "", wantTemp: true},
-		{name: "unknown", level: "bogus", wantTemp: true},
-		{name: "non-string", level: 3, wantTemp: true},
+		{name: "absent", level: nil},
+		{name: "off", level: "off"},
+		{name: "empty", level: ""},
+		{name: "unknown", level: "bogus"},
+		{name: "non-string", level: 3},
 		{name: "adaptive", level: "adaptive", wantThinking: adaptive},
 		{name: "low", level: "low", wantThinking: adaptive, wantOutput: map[string]any{"effort": "low"}},
 		{name: "medium", level: "medium", wantThinking: adaptive, wantOutput: map[string]any{"effort": "medium"}},
@@ -85,8 +84,8 @@ func TestChat_ThinkingLevelRequestBody(t *testing.T) {
 			if got := body["output_config"]; !reflect.DeepEqual(got, tt.wantOutput) {
 				t.Errorf("output_config = %#v, want %#v", got, tt.wantOutput)
 			}
-			if _, got := body["temperature"]; got != tt.wantTemp {
-				t.Errorf("temperature present = %v, want %v", got, tt.wantTemp)
+			if got, set := body["temperature"]; set {
+				t.Errorf("temperature = %v, want absent", got)
 			}
 			if got := body["max_tokens"]; got != float64(1000) {
 				t.Errorf("max_tokens = %v, want 1000", got)

@@ -497,13 +497,15 @@ func buildRequestBody(
 		"messages":   []any{},
 	}
 
-	// Set temperature from options
-	if temp, ok := asFloat(options["temperature"]); ok {
-		result["temperature"] = temp
+	// temperature is never sent: current Claude models refuse any value
+	// other than the default.
+	if temp, ok := options["temperature"]; ok {
+		logger.DebugCF("anthropic_messages", "temperature not sent to Anthropic",
+			map[string]any{"temperature": temp})
 	}
 
-	// Adaptive thinking. When it is on, temperature must be unset and the
-	// thinking blocks of earlier assistant turns are sent back.
+	// Adaptive thinking. When it is on, the thinking blocks of earlier
+	// assistant turns are sent back.
 	thinkingOn := applyThinking(result, options)
 
 	// Process messages
@@ -615,8 +617,7 @@ func buildRequestBody(
 //	"low/medium/high/xhigh/max"         → thinking {type: adaptive} + output_config {effort: <level>}
 //	"", "off" or an unknown level       → nothing
 //
-// Temperature is removed whenever thinking is sent, as the API requires. It
-// reports whether thinking was sent.
+// It reports whether thinking was sent.
 func applyThinking(body map[string]any, options map[string]any) bool {
 	level, ok := options["thinking_level"].(string)
 	if !ok {
@@ -629,11 +630,6 @@ func applyThinking(body map[string]any, options map[string]any) bool {
 	body["thinking"] = map[string]any{"type": "adaptive"}
 	if effort != "" {
 		body["output_config"] = map[string]any{"effort": effort}
-	}
-	if _, set := body["temperature"]; set {
-		logger.DebugCF("anthropic_messages", "temperature cleared because thinking is enabled",
-			map[string]any{"level": level})
-		delete(body, "temperature")
 	}
 	return true
 }
@@ -777,19 +773,6 @@ func asInt(v any) (int, bool) {
 		return int(val), true
 	case int64:
 		return int(val), true
-	default:
-		return 0, false
-	}
-}
-
-func asFloat(v any) (float64, bool) {
-	switch val := v.(type) {
-	case float64:
-		return val, true
-	case int:
-		return float64(val), true
-	case int64:
-		return float64(val), true
 	default:
 		return 0, false
 	}

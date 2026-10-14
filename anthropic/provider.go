@@ -283,8 +283,11 @@ func buildParams(
 		MaxTokens: maxTokens,
 	}
 
-	if temp, ok := options["temperature"].(float64); ok {
-		params.Temperature = anthropic.Float(temp)
+	// temperature is never sent: current Claude models refuse any value
+	// other than the default.
+	if temp, ok := options["temperature"]; ok {
+		logger.DebugCF("anthropic", "temperature not sent to Anthropic",
+			map[string]any{"temperature": temp})
 	}
 
 	// Adaptive thinking (see common.AnthropicThinking for the mapping).
@@ -421,22 +424,12 @@ func thinkingBlockJSON(tb thinkingBlock) json.RawMessage {
 // output_config.effort, as common.AnthropicThinking maps level. Nothing is
 // set for "", "off" or an unknown level.
 //
-// Anthropic API constraint: temperature must not be set when thinking is sent.
-//
 // It reports whether thinking was sent.
 func applyThinkingConfig(params *anthropic.MessageNewParams, level string) bool {
 	effort, on := common.AnthropicThinking(level)
 	if !on {
 		return false
 	}
-
-	// Anthropic API rejects requests with temperature set alongside thinking.
-	// Reset to zero value (omitted from JSON serialization).
-	if params.Temperature.Valid() {
-		logger.DebugCF("anthropic", "temperature cleared because thinking is enabled",
-			map[string]any{"level": level})
-	}
-	params.Temperature = anthropic.MessageNewParams{}.Temperature
 
 	adaptive := anthropic.ThinkingConfigAdaptiveParam{}
 	params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
