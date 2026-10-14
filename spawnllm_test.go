@@ -84,6 +84,40 @@ func TestRun_APILoop_ExecutesInjectedToolThenAnswers(t *testing.T) {
 	}
 }
 
+// A provider that reports tool calls only in Function (the OpenAI wire form,
+// as the Responses provider does) still has them dispatched by name with
+// their arguments.
+func TestRun_APILoop_ExecutesFunctionOnlyToolCall(t *testing.T) {
+	var gotArgs map[string]any
+	tool := toolspec.ToolDefinition{
+		Name: "echo",
+		Handler: func(call *toolspec.ToolCall) (*toolspec.Result, error) {
+			gotArgs = call.Args
+			return &toolspec.Result{ForLLM: "echoed"}, nil
+		},
+	}
+	prov := &scriptedProvider{resps: []*LLMResponse{
+		{ToolCalls: []ToolCall{{ID: "c1", Type: "function", Function: &FunctionCall{Name: "echo", Arguments: `{"v":"hi"}`}}}},
+		{Content: "done"},
+	}}
+	w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	res, err := w.Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if gotArgs["v"] != "hi" {
+		t.Errorf("tool received args %v, want v=hi", gotArgs)
+	}
+	for _, m := range res.Messages {
+		if m.Role == "tool" && m.Content != "echoed" {
+			t.Errorf("tool result = %q, want echoed", m.Content)
+		}
+	}
+}
+
 func TestRun_APILoop_MaxIterations(t *testing.T) {
 	// Provider always asks for a tool → never completes → cap trips.
 	loop := &LLMResponse{ToolCalls: []ToolCall{{ID: "x", Name: "echo"}}}

@@ -450,18 +450,11 @@ func buildInput(messages []Message) (instructions string, input []any) {
 				})
 			}
 			for _, tc := range m.ToolCalls {
-				if tc.Function == nil {
-					continue
-				}
-				args := tc.Function.Arguments
-				if strings.TrimSpace(args) == "" {
-					args = "{}"
-				}
 				input = append(input, map[string]any{
 					"type":      "function_call",
 					"call_id":   tc.ID,
-					"name":      tc.Function.Name,
-					"arguments": args,
+					"name":      common.ToolCallName(tc),
+					"arguments": common.ToolCallArgumentsJSON(tc),
 				})
 			}
 		default: // user (and any other) → user input message

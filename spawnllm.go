@@ -10,6 +10,7 @@ import (
 
 	anthropicmessages "github.com/PivotLLM/spawnllm/anthropic_messages"
 	"github.com/PivotLLM/spawnllm/azure"
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/openai_compat"
 	"github.com/PivotLLM/spawnllm/openai_responses"
 )
@@ -228,16 +229,17 @@ func (w *Worker) providerToolDefs() []ToolDefinition {
 // execTool runs one tool call against the injected tool and returns its
 // model-facing content (or an error string the model can read).
 func (w *Worker) execTool(ctx context.Context, tc ToolCall) string {
-	def, ok := w.toolByName[tc.Name]
+	name := common.ToolCallName(tc)
+	def, ok := w.toolByName[name]
 	if !ok {
-		return fmt.Sprintf("error: tool %q is not available", tc.Name)
+		return fmt.Sprintf("error: tool %q is not available", name)
 	}
 	if def.Handler == nil {
-		return fmt.Sprintf("error: tool %q has no handler", tc.Name)
+		return fmt.Sprintf("error: tool %q has no handler", name)
 	}
 	res, err := def.Handler(&toolspec.ToolCall{
 		Ctx:     ctx,
-		Args:    tc.Arguments,
+		Args:    common.ToolCallInput(tc),
 		AgentID: w.agentID,
 		Session: w.session,
 		Channel: w.channel,

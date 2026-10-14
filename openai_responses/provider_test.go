@@ -385,3 +385,37 @@ func TestFunctionCallOutput_Image(t *testing.T) {
 		t.Errorf("part[1] = %v, want input_image with image_url", parts[1])
 	}
 }
+
+func TestChat_ToolHistoryReplay_DirectNameAndArguments(t *testing.T) {
+	reply := `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}]}`
+	tests := []struct {
+		name     string
+		call     ToolCall
+		wantArgs string
+	}{
+		{"with arguments", ToolCall{ID: "call_1", Name: "get_weather", Arguments: map[string]any{"city": "NYC"}}, `{"city":"NYC"}`},
+		{"without arguments", ToolCall{ID: "call_1", Name: "get_weather"}, `{}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p, body := captureServer(t, reply)
+			msgs := []Message{
+				{Role: "user", Content: "weather?"},
+				{Role: "assistant", ToolCalls: []ToolCall{tt.call}},
+				{Role: "tool", ToolCallID: "call_1", Content: "sunny"},
+			}
+			if _, err := p.Chat(context.Background(), msgs, nil, "gpt-5", nil); err != nil {
+				t.Fatalf("Chat error: %v", err)
+			}
+			input := asType[[]any](t, (*body)["input"], "input")
+			if len(input) != 3 {
+				t.Fatalf("input len = %d, want 3; got %v", len(input), input)
+			}
+			fc := asType[map[string]any](t, input[1], "input[1]")
+			if fc["type"] != "function_call" || fc["call_id"] != "call_1" ||
+				fc["name"] != "get_weather" || fc["arguments"] != tt.wantArgs {
+				t.Errorf("function_call item = %v", fc)
+			}
+		})
+	}
+}
