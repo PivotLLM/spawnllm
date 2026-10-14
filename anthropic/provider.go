@@ -283,18 +283,18 @@ func buildParams(
 		MaxTokens: maxTokens,
 	}
 
-	if temp, ok := options["temperature"].(float64); ok {
-		params.Temperature = anthropic.Float(temp)
+	// temperature is never sent: current Claude models refuse any value
+	// other than the default.
+	if temp, ok := options["temperature"]; ok {
+		logger.DebugCF("anthropic", "temperature not sent to Anthropic",
+			map[string]any{"temperature": temp})
 	}
 
-	// Extended Thinking / Adaptive Thinking
-	// The thinking_level value directly determines the API parameter format:
-	//   "adaptive" → {thinking: {type: "adaptive"}} + output_config.effort
-	//   "low/medium/high/xhigh" → {thinking: {type: "enabled", budget_tokens: N}}
+	// Adaptive thinking (see common.AnthropicThinking for the mapping).
 	// Decided before the messages are built: while thinking is on, each
 	// assistant turn's thinking blocks are sent back.
 	thinkingOn := false
-	if level, ok := options["thinking_level"].(string); ok && level != "" && level != "off" {
+	if level, ok := options["thinking_level"].(string); ok {
 		thinkingOn = applyThinkingConfig(&params, level)
 	}
 
@@ -420,37 +420,22 @@ func thinkingBlockJSON(tb thinkingBlock) json.RawMessage {
 	return data
 }
 
-// applyThinkingConfig sets thinking parameters based on the level value.
-// "adaptive" uses the adaptive thinking API (Claude 4.6+).
-// All other levels use budget_tokens which is universally supported.
-//
-// Anthropic API constraint: temperature must not be set when thinking is enabled.
-// budget_tokens must be strictly less than max_tokens.
+// applyThinkingConfig sets adaptive thinking and, for an effort level,
+// output_config.effort, as common.AnthropicThinking maps level. Nothing is
+// set for "", "off" or an unknown level.
 //
 // It reports whether thinking was sent.
 func applyThinkingConfig(params *anthropic.MessageNewParams, level string) bool {
-	// Anthropic API rejects requests with temperature set alongside thinking.
-	// Reset to zero value (omitted from JSON serialization).
-	if params.Temperature.Valid() {
-		logger.DebugCF("anthropic", "temperature cleared because thinking is enabled",
-			map[string]any{"level": level})
-	}
-	params.Temperature = anthropic.MessageNewParams{}.Temperature
-
-	if level == "adaptive" {
-		adaptive := anthropic.ThinkingConfigAdaptiveParam{}
-		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
-		params.OutputConfig = anthropic.OutputConfigParam{
-			Effort: anthropic.OutputConfigEffortHigh,
-		}
-		return true
-	}
-
-	budget, ok := common.ClampThinkingBudget(common.ThinkingBudget(level), params.MaxTokens, "anthropic")
-	if !ok {
+	effort, on := common.AnthropicThinking(level)
+	if !on {
 		return false
 	}
-	params.Thinking = anthropic.ThinkingConfigParamOfEnabled(budget)
+
+	adaptive := anthropic.ThinkingConfigAdaptiveParam{}
+	params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &adaptive}
+	if effort != "" {
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(effort)}
+	}
 	return true
 }
 

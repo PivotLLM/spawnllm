@@ -2,119 +2,63 @@ package anthropicprovider
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
-func TestApplyThinkingConfig_Adaptive(t *testing.T) {
-	params := anthropic.MessageNewParams{
-		MaxTokens:   16000,
-		Temperature: anthropic.Float(0.7),
-	}
-	applyThinkingConfig(&params, "adaptive")
-
-	if params.Thinking.OfAdaptive == nil {
-		t.Fatal("expected adaptive thinking")
-	}
-	if params.Thinking.OfEnabled != nil {
-		t.Error("should not set enabled thinking in adaptive mode")
-	}
-	if params.OutputConfig.Effort != anthropic.OutputConfigEffortHigh {
-		t.Errorf("effort = %q, want %q", params.OutputConfig.Effort, anthropic.OutputConfigEffortHigh)
-	}
-	if params.Temperature.Valid() {
-		t.Error("temperature should be cleared when thinking is enabled")
-	}
-}
-
-func TestApplyThinkingConfig_BudgetLevels(t *testing.T) {
+// TestChat_ThinkingLevelRequestBody checks the request body the SDK sends
+// for every thinking_level.
+func TestChat_ThinkingLevelRequestBody(t *testing.T) {
+	adaptive := map[string]any{"type": "adaptive"}
 	tests := []struct {
-		level      string
-		wantBudget int64
+		name         string
+		level        any // nil = option absent
+		wantThinking any // nil = no thinking key
+		wantOutput   any // nil = no output_config key
 	}{
-		{"low", 4096},
-		{"medium", 16384},
-		{"high", 32000},
-		{"xhigh", 64000},
+		{name: "absent", level: nil},
+		{name: "off", level: "off"},
+		{name: "empty", level: ""},
+		{name: "unknown", level: "bogus"},
+		{name: "non-string", level: 3},
+		{name: "adaptive", level: "adaptive", wantThinking: adaptive},
+		{name: "low", level: "low", wantThinking: adaptive, wantOutput: map[string]any{"effort": "low"}},
+		{name: "medium", level: "medium", wantThinking: adaptive, wantOutput: map[string]any{"effort": "medium"}},
+		{name: "high", level: "high", wantThinking: adaptive, wantOutput: map[string]any{"effort": "high"}},
+		{name: "xhigh", level: "xhigh", wantThinking: adaptive, wantOutput: map[string]any{"effort": "xhigh"}},
+		{name: "max", level: "max", wantThinking: adaptive, wantOutput: map[string]any{"effort": "max"}},
 	}
-
 	for _, tt := range tests {
-		t.Run(tt.level, func(t *testing.T) {
-			params := anthropic.MessageNewParams{
-				MaxTokens:   200000,
-				Temperature: anthropic.Float(0.5),
+		t.Run(tt.name, func(t *testing.T) {
+			var captured []map[string]any
+			srv := sdkMessagesServer(t, []string{sdkPlainText}, &captured)
+			p := NewProviderWithClient(createAnthropicTestClient(srv.URL, "test-token"))
+			opts := map[string]any{"max_tokens": 1000, "temperature": 0.7}
+			if tt.level != nil {
+				opts["thinking_level"] = tt.level
 			}
-			applyThinkingConfig(&params, tt.level)
-
-			if params.Thinking.OfEnabled == nil {
-				t.Fatal("expected enabled thinking")
+			if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "claude-sonnet-4-6", opts); err != nil {
+				t.Fatalf("Chat() error = %v", err)
 			}
-			if params.Thinking.OfAdaptive != nil {
-				t.Error("should not set adaptive thinking")
+			if len(captured) != 1 {
+				t.Fatalf("captured %d requests, want 1", len(captured))
 			}
-			if params.Thinking.OfEnabled.BudgetTokens != tt.wantBudget {
-				t.Errorf("budget_tokens = %d, want %d", params.Thinking.OfEnabled.BudgetTokens, tt.wantBudget)
+			body := captured[0]
+			if got := body["thinking"]; !reflect.DeepEqual(got, tt.wantThinking) {
+				t.Errorf("thinking = %#v, want %#v", got, tt.wantThinking)
 			}
-			if params.OutputConfig.Effort != "" {
-				t.Errorf("effort = %q, want empty", params.OutputConfig.Effort)
+			if got := body["output_config"]; !reflect.DeepEqual(got, tt.wantOutput) {
+				t.Errorf("output_config = %#v, want %#v", got, tt.wantOutput)
 			}
-			if params.Temperature.Valid() {
-				t.Error("temperature should be cleared when thinking is enabled")
+			if got, set := body["temperature"]; set {
+				t.Errorf("temperature = %v, want absent", got)
+			}
+			if got := body["max_tokens"]; got != float64(1000) {
+				t.Errorf("max_tokens = %v, want 1000", got)
 			}
 		})
-	}
-}
-
-func TestApplyThinkingConfig_BudgetClamp(t *testing.T) {
-	// budget_tokens must be < max_tokens; clamp budget down to respect user's max_tokens.
-	params := anthropic.MessageNewParams{MaxTokens: 4096}
-	applyThinkingConfig(&params, "high") // budget=32000 > maxTokens=4096
-
-	if params.Thinking.OfEnabled == nil {
-		t.Fatal("expected enabled thinking")
-	}
-	if params.Thinking.OfEnabled.BudgetTokens != 4095 {
-		t.Errorf("budget_tokens = %d, want 4095 (maxTokens-1)", params.Thinking.OfEnabled.BudgetTokens)
-	}
-	if params.MaxTokens != 4096 {
-		t.Errorf("max_tokens should not be modified, got %d", params.MaxTokens)
-	}
-}
-
-func TestApplyThinkingConfig_UnknownLevel(t *testing.T) {
-	params := anthropic.MessageNewParams{MaxTokens: 16000}
-	applyThinkingConfig(&params, "unknown")
-
-	if params.Thinking.OfEnabled != nil {
-		t.Error("should not set enabled thinking for unknown level")
-	}
-	if params.Thinking.OfAdaptive != nil {
-		t.Error("should not set adaptive thinking for unknown level")
-	}
-}
-
-func TestBuildParams_ThinkingClearsTemperature(t *testing.T) {
-	msgs := []Message{{Role: "user", Content: "hello"}}
-	opts := map[string]any{
-		"max_tokens":     200000,
-		"temperature":    0.8,
-		"thinking_level": "medium",
-	}
-
-	params, err := buildParams(msgs, nil, "claude-sonnet-4-6", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if params.Temperature.Valid() {
-		t.Error("temperature should be cleared when thinking_level is set")
-	}
-	if params.Thinking.OfEnabled == nil {
-		t.Fatal("expected enabled thinking")
-	}
-	if params.Thinking.OfEnabled.BudgetTokens != 16384 {
-		t.Errorf("budget_tokens = %d, want 16384", params.Thinking.OfEnabled.BudgetTokens)
 	}
 }
 
@@ -166,24 +110,5 @@ func TestParseResponse_NoThinkingBlock(t *testing.T) {
 	}
 	if result.Content != "Just a normal response." {
 		t.Errorf("Content = %q, want text content", result.Content)
-	}
-}
-
-func TestBuildParams_NoThinkingKeepsTemperature(t *testing.T) {
-	msgs := []Message{{Role: "user", Content: "hello"}}
-	opts := map[string]any{
-		"temperature": 0.8,
-	}
-
-	params, err := buildParams(msgs, nil, "claude-sonnet-4-6", opts)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if !params.Temperature.Valid() {
-		t.Error("temperature should be preserved when thinking is not set")
-	}
-	if params.Temperature.Value != 0.8 {
-		t.Errorf("temperature = %f, want 0.8", params.Temperature.Value)
 	}
 }

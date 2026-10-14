@@ -46,51 +46,31 @@ func TestProvider_SupportsThinking(t *testing.T) {
 }
 
 func TestChat_ThinkingLevelRequestBody(t *testing.T) {
+	adaptive := map[string]any{"type": "adaptive"}
 	tests := []struct {
 		name         string
 		level        any // nil = option absent
-		maxTokens    int
 		wantThinking any // nil = no thinking key
 		wantOutput   any // nil = no output_config key
-		wantTemp     bool
 	}{
-		{name: "absent", level: nil, maxTokens: 200000, wantTemp: true},
-		{name: "off", level: "off", maxTokens: 200000, wantTemp: true},
-		{name: "empty", level: "", maxTokens: 200000, wantTemp: true},
-		{name: "unknown", level: "bogus", maxTokens: 200000, wantTemp: true},
-		{
-			name: "low", level: "low", maxTokens: 200000,
-			wantThinking: map[string]any{"type": "enabled", "budget_tokens": float64(4096)},
-		},
-		{
-			name: "medium", level: "medium", maxTokens: 200000,
-			wantThinking: map[string]any{"type": "enabled", "budget_tokens": float64(16384)},
-		},
-		{
-			name: "high", level: "high", maxTokens: 200000,
-			wantThinking: map[string]any{"type": "enabled", "budget_tokens": float64(32000)},
-		},
-		{
-			name: "xhigh", level: "xhigh", maxTokens: 200000,
-			wantThinking: map[string]any{"type": "enabled", "budget_tokens": float64(64000)},
-		},
-		{
-			name: "adaptive", level: "adaptive", maxTokens: 200000,
-			wantThinking: map[string]any{"type": "adaptive"},
-			wantOutput:   map[string]any{"effort": "high"},
-		},
-		{
-			name: "budget clamped below max_tokens", level: "high", maxTokens: 4096,
-			wantThinking: map[string]any{"type": "enabled", "budget_tokens": float64(4095)},
-		},
-		{name: "max_tokens too small for thinking", level: "low", maxTokens: 1000, wantTemp: true},
+		{name: "absent", level: nil},
+		{name: "off", level: "off"},
+		{name: "empty", level: ""},
+		{name: "unknown", level: "bogus"},
+		{name: "non-string", level: 3},
+		{name: "adaptive", level: "adaptive", wantThinking: adaptive},
+		{name: "low", level: "low", wantThinking: adaptive, wantOutput: map[string]any{"effort": "low"}},
+		{name: "medium", level: "medium", wantThinking: adaptive, wantOutput: map[string]any{"effort": "medium"}},
+		{name: "high", level: "high", wantThinking: adaptive, wantOutput: map[string]any{"effort": "high"}},
+		{name: "xhigh", level: "xhigh", wantThinking: adaptive, wantOutput: map[string]any{"effort": "xhigh"}},
+		{name: "max", level: "max", wantThinking: adaptive, wantOutput: map[string]any{"effort": "max"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var captured []map[string]any
 			srv := jsonMessagesServer(t, []string{plainTextResponse}, &captured)
 			p := NewProvider("key", srv.URL)
-			opts := map[string]any{"max_tokens": tt.maxTokens, "temperature": 0.7}
+			opts := map[string]any{"max_tokens": 1000, "temperature": 0.7}
 			if tt.level != nil {
 				opts["thinking_level"] = tt.level
 			}
@@ -104,8 +84,11 @@ func TestChat_ThinkingLevelRequestBody(t *testing.T) {
 			if got := body["output_config"]; !reflect.DeepEqual(got, tt.wantOutput) {
 				t.Errorf("output_config = %#v, want %#v", got, tt.wantOutput)
 			}
-			if _, got := body["temperature"]; got != tt.wantTemp {
-				t.Errorf("temperature present = %v, want %v", got, tt.wantTemp)
+			if got, set := body["temperature"]; set {
+				t.Errorf("temperature = %v, want absent", got)
+			}
+			if got := body["max_tokens"]; got != float64(1000) {
+				t.Errorf("max_tokens = %v, want 1000", got)
 			}
 		})
 	}
