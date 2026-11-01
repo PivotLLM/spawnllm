@@ -238,6 +238,10 @@ func (p *Provider) Chat(
 		return nil, errors.New("API base not configured")
 	}
 
+	// Deferred tools are not loaded natively on Chat Completions: leave them
+	// out (tool references in results are sent as text, serializeMessages).
+	tools = common.LoadedTools(tools)
+
 	if p.strictAlternation {
 		messages = normalizeAlternation(messages)
 	}
@@ -570,7 +574,7 @@ func normalizeAlternation(in []Message) []Message {
 	rewritten := make([]Message, 0, len(in))
 	for _, msg := range in {
 		role := msg.Role
-		content := msg.Content
+		content := common.ToolResultText(msg)
 		switch role {
 		case "system", "developer":
 			if strings.TrimSpace(content) != "" {
@@ -641,6 +645,7 @@ func normalizeAlternation(in []Message) []Message {
 func serializeMessages(messages []Message, strictCompat bool) []any {
 	out := make([]any, 0, len(messages))
 	for _, m := range messages {
+		m.Content = common.ToolResultText(m)
 		toolCalls := common.WireToolCalls(m.ToolCalls)
 		reasoningContent := m.ReasoningContent
 

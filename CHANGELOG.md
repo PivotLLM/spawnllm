@@ -29,6 +29,24 @@ All notable changes to spawnllm are recorded here. The format follows
   for Responses API replies that report
   `usage.input_tokens_details.cached_tokens` / `cache_write_tokens`.
 
+- Deferred tools and tool references. `ToolDefinition.Deferred` sends a
+  tool's definition without loading it into the model's context;
+  `Message.ToolReferences` on a tool result names the tools the host's own
+  search found, which loads them. The optional interface
+  `DeferredToolsCapable` (`SupportsDeferredTools(model string) bool`) tells
+  the host whether a provider does this natively for a model, so it can send
+  the same full tool list on every request and keep the prompt cache. Both
+  Anthropic providers (and `ClaudeProvider`) support it for Claude 4.5 and
+  later: deferred tools are sent with `defer_loading: true`, and references as
+  `tool_reference` blocks in the `tool_result` (with a text block before them
+  when the result also has text). A reference to a tool not in the request is
+  named in the text instead, since the API refuses it.
+- Every provider without native support (Chat Completions, Responses, Azure,
+  the CLIs, and Anthropic models before 4.5) leaves deferred tools out of the
+  request and appends the references to the tool result as text
+  ("Tools found: a, b"), so a history that carries them still works after a
+  fallback to another provider.
+
 ### Changed
 
 - Anthropic: `Usage.PromptTokens` (and so `TotalTokens`) now counts every

@@ -50,6 +50,12 @@ func (p *ClaudeProvider) Chat(
 	return resp, nil
 }
 
+// SupportsDeferredTools implements DeferredToolsCapable for the wrapped
+// Anthropic provider.
+func (p *ClaudeProvider) SupportsDeferredTools(model string) bool {
+	return p.delegate.SupportsDeferredTools(model)
+}
+
 func (p *ClaudeProvider) GetDefaultModel() string {
 	return p.delegate.GetDefaultModel()
 }

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/logger"
 )
 
@@ -200,7 +201,7 @@ func (p *CodexCliProvider) buildPrompt(messages []Message) string {
 			conversationParts = append(conversationParts, "Assistant: "+escapeConvMarkers(msg.Content))
 		case "tool":
 			conversationParts = append(conversationParts,
-				fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content))
+				fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, common.ToolResultText(msg)))
 		}
 	}
 

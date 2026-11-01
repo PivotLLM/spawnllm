@@ -127,11 +127,26 @@ type Message struct {
 	// redacted_thinking blocks verbatim, sent back before its text and tool_use
 	// blocks on the next request when thinking is on. Persisted with history.
 	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
+	// ToolReferences names the tools a tool result makes available: the
+	// matches of the host's own tool search. On a provider that loads deferred
+	// tools natively (see ToolDefinition.Deferred) they are sent as tool
+	// references, which load those tools' definitions into the model's context
+	// without changing the request's tool list; elsewhere they are appended to
+	// Content as text ("Tools found: a, b"). Only meaningful on a tool result.
+	// Persisted with history.
+	ToolReferences []string `json:"tool_references,omitempty"`
 }
 
 type ToolDefinition struct {
 	Type     string                 `json:"type"`
 	Function ToolFunctionDefinition `json:"function"`
+	// Deferred sends the tool's definition with the request but keeps it out
+	// of the model's context until a tool result names it in
+	// Message.ToolReferences. A provider that does not support deferred tools
+	// natively for the model in use leaves deferred tools out of the request
+	// altogether, so a host keeping its tool list stable for prompt caching
+	// checks the provider's support first. Never on the wire as is.
+	Deferred bool `json:"-"`
 }
 
 type ToolFunctionDefinition struct {

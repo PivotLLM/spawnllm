@@ -151,6 +151,10 @@ func (p *Provider) Chat(
 		return nil, errors.New("API base not configured")
 	}
 
+	// Deferred tools are not loaded natively here: leave them out (tool
+	// references in results are sent as text, functionCallOutput).
+	tools = common.LoadedTools(tools)
+
 	instructions, input := buildInput(messages)
 
 	requestBody := map[string]any{
@@ -470,6 +474,7 @@ func buildInput(messages []Message) (instructions string, input []any) {
 // image/file content array as a function output — this is how a tool (e.g. an MCP
 // screenshot) hands an image directly to a vision model via its tool result.
 func functionCallOutput(m Message) any {
+	m.Content = common.ToolResultText(m)
 	if len(m.Media) == 0 {
 		return m.Content
 	}

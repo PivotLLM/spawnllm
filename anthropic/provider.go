@@ -46,6 +46,12 @@ type Provider struct {
 // SupportsThinking implements providers.ThinkingCapable.
 func (p *Provider) SupportsThinking() bool { return true }
 
+// SupportsDeferredTools implements spawnllm.DeferredToolsCapable: Claude 4.5
+// and later load deferred tools natively (defer_loading, tool_reference).
+func (p *Provider) SupportsDeferredTools(model string) bool {
+	return common.AnthropicSupportsDeferredTools(model)
+}
+
 func NewProvider(token string) *Provider {
 	return NewProviderWithBaseURL(token, "")
 }
@@ -301,6 +307,17 @@ func buildParams(
 		thinkingOn = applyThinkingConfig(&params, level)
 	}
 
+	// Deferred tools: sent with defer_loading on a model that supports them,
+	// left out otherwise (tool references then go as text).
+	native := common.AnthropicSupportsDeferredTools(apiModel)
+	if !native {
+		tools = common.LoadedTools(tools)
+	}
+	sentTools := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		sentTools[t.Function.Name] = true
+	}
+
 	var system []anthropic.TextBlockParam
 	var anthropicMessages []anthropic.MessageParam
 	explicitBreakpoints := 0
@@ -326,7 +343,7 @@ func buildParams(
 		case "user":
 			if msg.ToolCallID != "" {
 				anthropicMessages = append(anthropicMessages,
-					anthropic.NewUserMessage(anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false)),
+					anthropic.NewUserMessage(toolResultBlock(msg, native, sentTools)),
 				)
 			} else {
 				anthropicMessages = append(anthropicMessages,
@@ -355,7 +372,7 @@ func buildParams(
 			}
 		case "tool":
 			anthropicMessages = append(anthropicMessages,
-				anthropic.NewUserMessage(anthropic.NewToolResultBlock(msg.ToolCallID, msg.Content, false)),
+				anthropic.NewUserMessage(toolResultBlock(msg, native, sentTools)),
 			)
 		}
 	}
@@ -461,9 +478,47 @@ func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 		if required := requiredNames(t.Function.Parameters["required"]); required != nil {
 			tool.InputSchema.Required = required
 		}
+		if t.Deferred {
+			tool.DeferLoading = anthropic.Bool(true)
+		}
 		result = append(result, anthropic.ToolUnionParam{OfTool: &tool})
 	}
 	return result
+}
+
+// toolResultBlock builds the tool_result block for a tool result message. Its
+// tool references become tool_reference blocks when native is set and the tool
+// is in the request (the API refuses a reference to any other); the rest, and
+// all of them otherwise, are named in the text.
+func toolResultBlock(msg Message, native bool, sentTools map[string]bool) anthropic.ContentBlockParamUnion {
+	var refs, asText []string
+	for _, name := range msg.ToolReferences {
+		if native && sentTools[name] {
+			refs = append(refs, name)
+		} else {
+			asText = append(asText, name)
+		}
+	}
+	text := common.WithToolsFound(msg.Content, asText)
+	if len(refs) == 0 {
+		return anthropic.NewToolResultBlock(msg.ToolCallID, text, false)
+	}
+	content := make([]anthropic.ToolResultBlockParamContentUnion, 0, 1+len(refs))
+	if text != "" {
+		content = append(content, anthropic.ToolResultBlockParamContentUnion{
+			OfText: &anthropic.TextBlockParam{Text: text},
+		})
+	}
+	for _, name := range refs {
+		content = append(content, anthropic.ToolResultBlockParamContentUnion{
+			OfToolReference: &anthropic.ToolReferenceBlockParam{ToolName: name},
+		})
+	}
+	return anthropic.ContentBlockParamUnion{OfToolResult: &anthropic.ToolResultBlockParam{
+		ToolUseID: msg.ToolCallID,
+		Content:   content,
+		IsError:   anthropic.Bool(false),
+	}}
 }
 
 // requiredNames returns the parameter names in a JSON schema "required" value.

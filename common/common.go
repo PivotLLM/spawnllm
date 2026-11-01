@@ -100,6 +100,7 @@ type openaiMessage struct {
 func SerializeMessages(messages []Message) []any {
 	out := make([]any, 0, len(messages))
 	for _, m := range messages {
+		m.Content = ToolResultText(m)
 		if len(m.Media) == 0 {
 			out = append(out, openaiMessage{
 				Role:             m.Role,

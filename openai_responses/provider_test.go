@@ -448,3 +448,28 @@ func TestChat_CacheUsageDetails(t *testing.T) {
 			out2.Status.CacheReadTokens, out2.Status.CacheCreationTokens)
 	}
 }
+
+func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
+	p, body := captureServer(t, `{"status":"completed","output":[]}`)
+	tools := []ToolDefinition{
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "search_tools"}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "get_weather"}, Deferred: true},
+	}
+	msgs := []Message{
+		{Role: "user", Content: "weather?"},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "search_tools", Arguments: map[string]any{}}}},
+		{Role: "tool", ToolCallID: "c1", Content: "1 match", ToolReferences: []string{"get_weather"}},
+	}
+	if _, err := p.Chat(context.Background(), msgs, tools, "gpt-5", nil); err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	sent := asType[[]any](t, (*body)["tools"], "tools")
+	if len(sent) != 1 || asType[map[string]any](t, sent[0], "tools[0]")["name"] != "search_tools" {
+		t.Fatalf("tools = %v, want only search_tools", sent)
+	}
+	input := asType[[]any](t, (*body)["input"], "input")
+	out := asType[map[string]any](t, input[len(input)-1], "last input")
+	if out["type"] != "function_call_output" || out["output"] != "1 match\n\nTools found: get_weather" {
+		t.Errorf("last input = %v", out)
+	}
+}
