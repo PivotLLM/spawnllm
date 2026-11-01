@@ -41,8 +41,20 @@ All notable changes to spawnllm are recorded here. The format follows
   `tool_reference` blocks in the `tool_result` (with a text block before them
   when the result also has text). A reference to a tool not in the request is
   named in the text instead, since the API refuses it.
-- Every provider without native support (Chat Completions, Responses, Azure,
-  the CLIs, and Anthropic models before 4.5) leaves deferred tools out of the
+- `ToolDefinition.ToolSearch` marks the host's own tool-search tool. It is
+  never sent deferred. On the OpenAI Responses API (`openai-responses`) with
+  gpt-5.4 or later (a bare `gpt-<major>.<minor>` id at or above 5.4), when the
+  request has deferred tools and a tool-search tool, deferred tools load
+  natively through client-executed tool search: the tool-search tool is sent
+  as `{"type": "tool_search", "execution": "client"}`, deferred functions
+  carry `defer_loading: true`, a `tool_search_call` from the model is
+  reported as an ordinary call to the tool-search tool, and its result goes
+  back as `tool_search_output` holding the full definitions of the referenced
+  tools. That item has no room for text, so the result's own text is not sent
+  there. `openai_responses.Provider` implements `DeferredToolsCapable` by the
+  same model rule.
+- Every provider without native support (Chat Completions, Azure, the CLIs,
+  Responses models before gpt-5.4, and Anthropic models before 4.5) leaves deferred tools out of the
   request and appends the references to the tool result as text
   ("Tools found: a, b"), so a history that carries them still works after a
   fallback to another provider.

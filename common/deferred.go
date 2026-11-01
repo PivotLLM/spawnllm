@@ -5,13 +5,19 @@ import (
 	"strings"
 )
 
+// IsDeferred reports whether a tool is sent deferred: Deferred is set and it
+// is not the host's tool-search tool, which is never deferred.
+func IsDeferred(t ToolDefinition) bool {
+	return t.Deferred && !t.ToolSearch
+}
+
 // LoadedTools returns tools without the deferred ones: the request tool list
 // for a provider that cannot load deferred tools natively. The input slice is
 // returned unchanged when nothing is deferred.
 func LoadedTools(tools []ToolDefinition) []ToolDefinition {
 	deferred := 0
 	for _, t := range tools {
-		if t.Deferred {
+		if IsDeferred(t) {
 			deferred++
 		}
 	}
@@ -20,7 +26,7 @@ func LoadedTools(tools []ToolDefinition) []ToolDefinition {
 	}
 	out := make([]ToolDefinition, 0, len(tools)-deferred)
 	for _, t := range tools {
-		if !t.Deferred {
+		if !IsDeferred(t) {
 			out = append(out, t)
 		}
 	}

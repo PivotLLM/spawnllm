@@ -331,7 +331,7 @@ func TestBuildInput_ReplaysReasoningBeforeToolCall(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "call_1", Content: "result"},
 	}
-	_, input := buildInput(msgs)
+	_, input := buildInput(msgs, nil)
 
 	reasoningIdx, fcIdx := -1, -1
 	for i, it := range input {

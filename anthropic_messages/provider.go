@@ -649,7 +649,7 @@ func buildTools(tools []ToolDefinition) []any {
 			"description":  tool.Function.Description,
 			"input_schema": tool.Function.Parameters,
 		}
-		if tool.Deferred {
+		if common.IsDeferred(tool) {
 			toolDef["defer_loading"] = true
 		}
 		result[i] = toolDef

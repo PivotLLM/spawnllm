@@ -83,3 +83,12 @@ func TestSerializeMessages_ToolReferencesAsText(t *testing.T) {
 		t.Errorf("content = %q", got.Content)
 	}
 }
+
+func TestLoadedTools_KeepsSearchTool(t *testing.T) {
+	search := tool("search_tools", true)
+	search.ToolSearch = true
+	got := LoadedTools([]ToolDefinition{search, tool("b", true)})
+	if len(got) != 1 || got[0].Function.Name != "search_tools" {
+		t.Errorf("LoadedTools = %v, want the search tool only", got)
+	}
+}

@@ -147,6 +147,12 @@ type ToolDefinition struct {
 	// altogether, so a host keeping its tool list stable for prompt caching
 	// checks the provider's support first. Never on the wire as is.
 	Deferred bool `json:"-"`
+	// ToolSearch marks the host's own tool-search tool: the tool whose results
+	// carry Message.ToolReferences. It is never deferred (Deferred is ignored
+	// on it). On the OpenAI Responses API it is sent as the client-executed
+	// tool_search tool when the request has deferred tools; elsewhere it is an
+	// ordinary function. Never on the wire as is.
+	ToolSearch bool `json:"-"`
 }
 
 type ToolFunctionDefinition struct {

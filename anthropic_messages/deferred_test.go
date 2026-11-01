@@ -137,3 +137,15 @@ func list(t *testing.T, v any) []any {
 	}
 	return l
 }
+
+func TestBuildRequestBody_SearchToolNeverDeferred(t *testing.T) {
+	tools := deferredTools()
+	tools[0].Deferred, tools[0].ToolSearch = true, true
+	body := requestJSON(t, []Message{{Role: "user", Content: "hi"}}, tools, "claude-sonnet-4-6")
+	if dig(t, body, "tools", 0, "defer_loading") != nil {
+		t.Error("the tool-search tool must not be sent deferred")
+	}
+	if dig(t, body, "tools", 1, "defer_loading") != true {
+		t.Error("get_weather must stay deferred")
+	}
+}

@@ -151,11 +151,15 @@ func (p *Provider) Chat(
 		return nil, errors.New("API base not configured")
 	}
 
-	// Deferred tools are not loaded natively here: leave them out (tool
-	// references in results are sent as text, functionCallOutput).
-	tools = common.LoadedTools(tools)
+	// Deferred tools load natively through client-executed tool search on
+	// models that support it (see newToolSearch); otherwise they are left out
+	// and tool references in results are sent as text (functionCallOutput).
+	search := newToolSearch(tools, model)
+	if search == nil {
+		tools = common.LoadedTools(tools)
+	}
 
-	instructions, input := buildInput(messages)
+	instructions, input := buildInput(messages, search)
 
 	requestBody := map[string]any{
 		"model": model,
@@ -175,7 +179,7 @@ func (p *Provider) Chat(
 	}
 
 	if len(tools) > 0 {
-		requestBody["tools"] = responsesTools(tools)
+		requestBody["tools"] = responsesTools(tools, search)
 		requestBody["tool_choice"] = "auto"
 		if p.noParallelToolCalls {
 			requestBody["parallel_tool_calls"] = false
@@ -267,7 +271,7 @@ func (p *Provider) Chat(
 	// it whole. A non-200 status is handled the same way in both cases (the
 	// error body is small and read in full).
 	if streaming && resp.StatusCode == http.StatusOK {
-		return p.readStream(resp, streamCB, model, bytesSent, start)
+		return p.readStream(resp, streamCB, model, search.toolName(), bytesSent, start)
 	}
 
 	raw, readErr := io.ReadAll(resp.Body)
@@ -287,7 +291,7 @@ func (p *Provider) Chat(
 		return errorStatus(model, "error", durationMs, bytesSent, bytesReceived), respErr
 	}
 
-	out, err := parseResponse(raw, model)
+	out, err := parseResponse(raw, model, search.toolName())
 	if err != nil {
 		return errorStatus(model, "parse_error", durationMs, bytesSent, bytesReceived), err
 	}
@@ -309,7 +313,7 @@ func (p *Provider) Chat(
 func (p *Provider) readStream(
 	resp *http.Response,
 	cb common.TextDeltaFunc,
-	model string,
+	model, searchTool string,
 	bytesSent int64,
 	start time.Time,
 ) (*LLMResponse, error) {
@@ -367,7 +371,7 @@ func (p *Provider) readStream(
 			errors.New("stream ended without response.completed event")
 	}
 
-	out, err := parseResponse(completed, model)
+	out, err := parseResponse(completed, model, searchTool)
 	if err != nil {
 		return errorStatus(model, "parse_error", durationMs, bytesSent, counter.n), err
 	}
@@ -420,7 +424,9 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // buildInput converts internal messages into the Responses `input` array and a
 // hoisted `instructions` string (system/developer turns). Assistant tool calls
 // become function_call items; tool results become function_call_output items.
-func buildInput(messages []Message) (instructions string, input []any) {
+// With search set, calls to the tool-search tool and their results become
+// tool_search_call and tool_search_output items instead.
+func buildInput(messages []Message, search *toolSearch) (instructions string, input []any) {
 	var sys strings.Builder
 	input = make([]any, 0, len(messages))
 	for _, m := range messages {
@@ -433,6 +439,10 @@ func buildInput(messages []Message) (instructions string, input []any) {
 				sys.WriteString(m.Content)
 			}
 		case "tool":
+			if search.isCall(m.ToolCallID) {
+				input = append(input, search.outputItem(m))
+				continue
+			}
 			input = append(input, map[string]any{
 				"type":    "function_call_output",
 				"call_id": m.ToolCallID,
@@ -454,6 +464,10 @@ func buildInput(messages []Message) (instructions string, input []any) {
 				})
 			}
 			for _, tc := range m.ToolCalls {
+				if search.matches(tc) {
+					input = append(input, search.callItem(tc))
+					continue
+				}
 				input = append(input, map[string]any{
 					"type":      "function_call",
 					"call_id":   tc.ID,
@@ -513,17 +527,38 @@ func userInputMessage(m Message) map[string]any {
 
 // responsesTools flattens chat-style tool definitions ({type,function:{...}})
 // into the Responses shape ({type:"function", name, description, parameters}).
-func responsesTools(tools []ToolDefinition) []map[string]any {
+// With search set, the tool-search tool becomes the client tool_search tool and
+// deferred functions carry defer_loading.
+func responsesTools(tools []ToolDefinition, search *toolSearch) []map[string]any {
 	out := make([]map[string]any, 0, len(tools))
 	for _, t := range tools {
-		out = append(out, map[string]any{
-			"type":        "function",
-			"name":        t.Function.Name,
-			"description": t.Function.Description,
-			"parameters":  t.Function.Parameters,
-		})
+		if search != nil && t.ToolSearch && t.Function.Name == search.name {
+			out = append(out, map[string]any{
+				"type":        "tool_search",
+				"execution":   "client",
+				"description": t.Function.Description,
+				"parameters":  t.Function.Parameters,
+			})
+			continue
+		}
+		out = append(out, responsesFunction(t, search != nil))
 	}
 	return out
+}
+
+// responsesFunction is one function tool in the Responses shape; withDeferred
+// adds defer_loading to a deferred tool.
+func responsesFunction(t ToolDefinition, withDeferred bool) map[string]any {
+	fn := map[string]any{
+		"type":        "function",
+		"name":        t.Function.Name,
+		"description": t.Function.Description,
+		"parameters":  t.Function.Parameters,
+	}
+	if withDeferred && common.IsDeferred(t) {
+		fn["defer_loading"] = true
+	}
+	return fn
 }
 
 // responseEnvelope is the subset of the Responses API response we consume.
@@ -558,14 +593,35 @@ type responseOutputItem struct {
 		Type string `json:"type"`
 		Text string `json:"text"`
 	} `json:"summary"`
-	// function_call fields
-	CallID    string `json:"call_id"`
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
+	// function_call and tool_search_call fields. arguments is a JSON string on
+	// a function_call and an object on a tool_search_call.
+	CallID    string          `json:"call_id"`
+	Name      string          `json:"name"`
+	Arguments json.RawMessage `json:"arguments"`
+	Execution string          `json:"execution"`
 }
 
-// parseResponse maps a Responses API body into an LLMResponse.
-func parseResponse(raw []byte, model string) (*LLMResponse, error) {
+// argumentsJSON returns an output item's arguments as a JSON text: a JSON
+// string's value, or the raw JSON of any other value; "{}" when absent.
+func argumentsJSON(raw json.RawMessage) string {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "{}"
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err == nil {
+		if strings.TrimSpace(s) == "" {
+			return "{}"
+		}
+		return s
+	}
+	return string(raw)
+}
+
+// parseResponse maps a Responses API body into an LLMResponse. searchTool is
+// the name of the host's tool-search tool when it was sent as the client
+// tool_search tool (else ""): a client tool_search_call is reported as an
+// ordinary call to it.
+func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 	var env responseEnvelope
 	if err := json.Unmarshal(raw, &env); err != nil {
 		return nil, fmt.Errorf("failed to parse Responses API body: %w", err)
@@ -588,14 +644,19 @@ func parseResponse(raw []byte, model string) (*LLMResponse, error) {
 				}
 			}
 		case "function_call":
-			args := item.Arguments
-			if strings.TrimSpace(args) == "" {
-				args = "{}"
+			toolCalls = append(toolCalls, ToolCall{
+				ID:       item.CallID,
+				Type:     "function",
+				Function: &FunctionCall{Name: item.Name, Arguments: argumentsJSON(item.Arguments)},
+			})
+		case "tool_search_call":
+			if searchTool == "" || item.Execution != "client" {
+				continue
 			}
 			toolCalls = append(toolCalls, ToolCall{
 				ID:       item.CallID,
 				Type:     "function",
-				Function: &FunctionCall{Name: item.Name, Arguments: args},
+				Function: &FunctionCall{Name: searchTool, Arguments: argumentsJSON(item.Arguments)},
 			})
 		case "reasoning":
 			for _, s := range item.Summary {

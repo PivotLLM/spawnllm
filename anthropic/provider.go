@@ -478,7 +478,7 @@ func translateTools(tools []ToolDefinition) []anthropic.ToolUnionParam {
 		if required := requiredNames(t.Function.Parameters["required"]); required != nil {
 			tool.InputSchema.Required = required
 		}
-		if t.Deferred {
+		if common.IsDeferred(t) {
 			tool.DeferLoading = anthropic.Bool(true)
 		}
 		result = append(result, anthropic.ToolUnionParam{OfTool: &tool})
