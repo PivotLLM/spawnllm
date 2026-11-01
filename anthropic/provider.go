@@ -32,6 +32,9 @@ type (
 const (
 	defaultBaseURL      = "https://api.anthropic.com"
 	anthropicBetaHeader = "oauth-2025-04-20"
+	// maxCacheBreakpoints is the most cache_control markers one request may
+	// carry, automatic caching included.
+	maxCacheBreakpoints = 4
 )
 
 type Provider struct {
@@ -300,6 +303,7 @@ func buildParams(
 
 	var system []anthropic.TextBlockParam
 	var anthropicMessages []anthropic.MessageParam
+	explicitBreakpoints := 0
 
 	for _, msg := range messages {
 		switch msg.Role {
@@ -312,6 +316,7 @@ func buildParams(
 					block := anthropic.TextBlockParam{Text: part.Text}
 					if part.CacheControl != nil && part.CacheControl.Type == "ephemeral" {
 						block.CacheControl = anthropic.NewCacheControlEphemeralParam()
+						explicitBreakpoints++
 					}
 					system = append(system, block)
 				}
@@ -363,6 +368,16 @@ func buildParams(
 
 	if len(tools) > 0 {
 		params.Tools = translateTools(tools)
+	}
+
+	// Automatic prompt caching: the API puts a breakpoint on the last
+	// cacheable block, so each call in a tool loop reads the shared prefix
+	// (tools, system, earlier messages) from cache. It takes one of the
+	// request's breakpoint slots, so it is left out when explicit markers fill
+	// them all. Explicit markers carry no TTL, like this one (both 5 minutes),
+	// so a marker on the last block never conflicts with it.
+	if explicitBreakpoints < maxCacheBreakpoints {
+		params.CacheControl = anthropic.NewCacheControlEphemeralParam()
 	}
 
 	return params, nil
@@ -523,6 +538,10 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 		// value is still reported in DispatchStatus.StopReason.
 	}
 
+	// input_tokens counts only what follows the last cache breakpoint; the
+	// prompt's full size adds the tokens read from and written to the cache.
+	promptTokens := resp.Usage.InputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens
+
 	status := &DispatchStatus{
 		Success:             true,
 		Model:               resp.Model,
@@ -542,9 +561,9 @@ func parseResponse(resp *anthropic.Message) *LLMResponse {
 		FinishReason:      finishReason,
 		Normal:            finishReason == "stop" || finishReason == "tool_calls",
 		Usage: &UsageInfo{
-			PromptTokens:     int(resp.Usage.InputTokens),
+			PromptTokens:     int(promptTokens),
 			CompletionTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+			TotalTokens:      int(promptTokens + resp.Usage.OutputTokens),
 		},
 		Status: status,
 	}

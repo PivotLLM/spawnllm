@@ -33,8 +33,9 @@ func TestBuildRequestBody(t *testing.T) {
 				"max_tokens": 8192,
 			},
 			want: map[string]any{
-				"model":      "test-model",
-				"max_tokens": int64(8192),
+				"model":         "test-model",
+				"cache_control": map[string]any{"type": "ephemeral"},
+				"max_tokens":    int64(8192),
 				"messages": []any{
 					map[string]any{
 						"role":    "user",
@@ -54,8 +55,9 @@ func TestBuildRequestBody(t *testing.T) {
 				"max_tokens": 8192,
 			},
 			want: map[string]any{
-				"model":      "test-model",
-				"max_tokens": int64(8192),
+				"model":         "test-model",
+				"cache_control": map[string]any{"type": "ephemeral"},
+				"max_tokens":    int64(8192),
 				"messages": []any{
 					map[string]any{
 						"role":    "user",
@@ -84,9 +86,10 @@ func TestBuildRequestBody(t *testing.T) {
 				"max_tokens": 8192,
 			},
 			want: map[string]any{
-				"model":      "test-model",
-				"max_tokens": int64(8192),
-				"system":     "You are a helpful assistant.",
+				"model":         "test-model",
+				"cache_control": map[string]any{"type": "ephemeral"},
+				"max_tokens":    int64(8192),
+				"system":        "You are a helpful assistant.",
 				"messages": []any{
 					map[string]any{
 						"role":    "user",
@@ -106,8 +109,9 @@ func TestBuildRequestBody(t *testing.T) {
 				"temperature": 0.5,
 			},
 			want: map[string]any{
-				"model":      "test-model",
-				"max_tokens": int64(2048),
+				"model":         "test-model",
+				"cache_control": map[string]any{"type": "ephemeral"},
+				"max_tokens":    int64(2048),
 				"messages": []any{
 					map[string]any{
 						"role":    "user",
@@ -153,8 +157,9 @@ func TestBuildRequestBody(t *testing.T) {
 				"max_tokens": 8192,
 			},
 			want: map[string]any{
-				"model":      "test-model",
-				"max_tokens": int64(8192),
+				"model":         "test-model",
+				"cache_control": map[string]any{"type": "ephemeral"},
+				"max_tokens":    int64(8192),
 				"messages": []any{
 					map[string]any{
 						"role":    "user",

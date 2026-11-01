@@ -125,8 +125,8 @@ func TestChat_StreamingReconstructsWholeBody(t *testing.T) {
 	if out.ToolCalls[0].Function == nil || out.ToolCalls[0].Function.Arguments != want.ToolCalls[0].Function.Arguments {
 		t.Fatalf("tool args = %+v, want %+v", out.ToolCalls[0].Function, want.ToolCalls[0].Function)
 	}
-	if out.Usage == nil || out.Usage.PromptTokens != 11 || out.Usage.CompletionTokens != 7 {
-		t.Fatalf("Usage = %+v, want prompt=11 completion=7", out.Usage)
+	if out.Usage == nil || out.Usage.PromptTokens != 16 || out.Usage.CompletionTokens != 7 {
+		t.Fatalf("Usage = %+v, want prompt=16 (input 11 + cache 2+3) completion=7", out.Usage)
 	}
 	if out.Status == nil || out.Status.CacheReadTokens != 2 || out.Status.CacheCreationTokens != 3 {
 		t.Fatalf("Status cache tokens = %+v, want read=2 create=3", out.Status)

@@ -606,6 +606,12 @@ func buildRequestBody(
 		result["tools"] = buildTools(tools)
 	}
 
+	// Automatic prompt caching: the API puts a breakpoint on the last
+	// cacheable block, so each call in a tool loop reads the shared prefix
+	// (tools, system, earlier messages) from cache. This path sets no explicit
+	// markers, so it can neither exceed the breakpoint limit nor conflict on TTL.
+	result["cache_control"] = map[string]any{"type": "ephemeral"}
+
 	return result, nil
 }
 
@@ -709,6 +715,10 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		finishReason = "stop"
 	}
 
+	// input_tokens counts only what follows the last cache breakpoint; the
+	// prompt's full size adds the tokens read from and written to the cache.
+	promptTokens := resp.Usage.InputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens
+
 	status := &DispatchStatus{
 		Success:             true,
 		Model:               resp.Model,
@@ -728,9 +738,9 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		FinishReason:      finishReason,
 		Normal:            finishReason == "stop" || finishReason == "tool_calls",
 		Usage: &UsageInfo{
-			PromptTokens:     int(resp.Usage.InputTokens),
+			PromptTokens:     int(promptTokens),
 			CompletionTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+			TotalTokens:      int(promptTokens + resp.Usage.OutputTokens),
 		},
 		Status: status,
 	}, nil
