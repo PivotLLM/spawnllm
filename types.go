@@ -47,6 +47,18 @@ type ThinkingCapable interface {
 	SupportsThinking() bool
 }
 
+// DeferredToolsCapable is an optional interface for providers that can load
+// deferred tools natively for a model: ToolDefinition.Deferred tools are sent
+// with the request but enter the model's context only when a tool result names
+// them in Message.ToolReferences, so the tool list (part of every prompt-cache
+// prefix) can stay the same for a whole conversation. When a provider does not
+// implement it, or reports false for the model, it leaves deferred tools out of
+// the request and renders tool references as text; the host then has to reveal
+// tools by adding them to the list itself.
+type DeferredToolsCapable interface {
+	SupportsDeferredTools(model string) bool
+}
+
 // CLIProvider is an optional interface implemented by subprocess-based providers
 // (claude-cli, codex-cli, antigravity-cli, cursor-cli). CLI providers do not accept HTTP request
 // parameters such as temperature — options are passed as prompt context only.

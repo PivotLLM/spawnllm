@@ -331,7 +331,7 @@ func TestBuildInput_ReplaysReasoningBeforeToolCall(t *testing.T) {
 		},
 		{Role: "tool", ToolCallID: "call_1", Content: "result"},
 	}
-	_, input := buildInput(msgs)
+	_, input := buildInput(msgs, nil)
 
 	reasoningIdx, fcIdx := -1, -1
 	for i, it := range input {
@@ -417,5 +417,79 @@ func TestChat_ToolHistoryReplay_DirectNameAndArguments(t *testing.T) {
 				t.Errorf("function_call item = %v", fc)
 			}
 		})
+	}
+}
+
+func TestChat_CacheUsageDetails(t *testing.T) {
+	reply := `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],` +
+		`"usage":{"input_tokens":1000,"output_tokens":5,"total_tokens":1005,` +
+		`"input_tokens_details":{"cached_tokens":700,"cache_write_tokens":200}}}`
+	p, _ := captureServer(t, reply)
+	out, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5.6", nil)
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if out.Status.CacheReadTokens != 700 || out.Status.CacheCreationTokens != 200 {
+		t.Errorf("cache read/creation = %d/%d, want 700/200",
+			out.Status.CacheReadTokens, out.Status.CacheCreationTokens)
+	}
+	if out.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *out.Status.CostUSD)
+	}
+	// input_tokens already includes the cached and written tokens.
+	if out.Usage.PromptTokens != 1000 {
+		t.Errorf("PromptTokens = %d, want 1000", out.Usage.PromptTokens)
+	}
+	// InputTokens is only the uncached part; the three add up to the prompt.
+	if out.Status.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (1000 less 700 read, 200 written)", out.Status.InputTokens)
+	}
+	if sum := out.Status.InputTokens + out.Status.CacheReadTokens + out.Status.CacheCreationTokens; sum != out.Usage.PromptTokens {
+		t.Errorf("input+read+write = %d, want PromptTokens %d", sum, out.Usage.PromptTokens)
+	}
+
+	p2, _ := captureServer(t, `{"status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}`)
+	out2, err := p2.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5.6", nil)
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if out2.Status.CacheReadTokens != 0 || out2.Status.CacheCreationTokens != 0 {
+		t.Errorf("no details: cache read/creation = %d/%d, want 0/0",
+			out2.Status.CacheReadTokens, out2.Status.CacheCreationTokens)
+	}
+	if out2.Status.InputTokens != 3 {
+		t.Errorf("no details: InputTokens = %d, want 3", out2.Status.InputTokens)
+	}
+}
+
+func TestChat_ReferencedDeferredToolsSentAndReferencesAsText(t *testing.T) {
+	p, body := captureServer(t, `{"status":"completed","output":[]}`)
+	tools := []ToolDefinition{
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "search_tools"}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "read_file"}, Deferred: true},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "get_weather"}, Deferred: true},
+	}
+	msgs := []Message{
+		{Role: "user", Content: "weather?"},
+		{Role: "assistant", ToolCalls: []ToolCall{{ID: "c1", Name: "search_tools", Arguments: map[string]any{}}}},
+		{Role: "tool", ToolCallID: "c1", Content: "1 match", ToolReferences: []string{"get_weather"}},
+	}
+	if _, err := p.Chat(context.Background(), msgs, tools, "gpt-5", nil); err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	// read_file was never referenced: left out. get_weather was: an ordinary
+	// function after the loaded tools.
+	sent := asType[[]any](t, (*body)["tools"], "tools")
+	if len(sent) != 2 || asType[map[string]any](t, sent[0], "tools[0]")["name"] != "search_tools" ||
+		asType[map[string]any](t, sent[1], "tools[1]")["name"] != "get_weather" {
+		t.Fatalf("tools = %v, want search_tools, get_weather", sent)
+	}
+	if _, set := asType[map[string]any](t, sent[1], "tools[1]")["defer_loading"]; set {
+		t.Error("get_weather carries defer_loading")
+	}
+	input := asType[[]any](t, (*body)["input"], "input")
+	out := asType[map[string]any](t, input[len(input)-1], "last input")
+	if out["type"] != "function_call_output" || out["output"] != "1 match\n\nTools found: get_weather" {
+		t.Errorf("last input = %v", out)
 	}
 }

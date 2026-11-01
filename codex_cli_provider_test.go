@@ -33,14 +33,14 @@ func TestParseJSONLEvents_AgentMessage(t *testing.T) {
 	if resp.Usage == nil {
 		t.Fatal("Usage should not be nil")
 	}
-	if resp.Usage.PromptTokens != 150 {
-		t.Errorf("PromptTokens = %d, want 150", resp.Usage.PromptTokens)
+	if resp.Usage.PromptTokens != 100 {
+		t.Errorf("PromptTokens = %d, want 100 (input_tokens includes cached)", resp.Usage.PromptTokens)
 	}
 	if resp.Usage.CompletionTokens != 20 {
 		t.Errorf("CompletionTokens = %d, want 20", resp.Usage.CompletionTokens)
 	}
-	if resp.Usage.TotalTokens != 170 {
-		t.Errorf("TotalTokens = %d, want 170", resp.Usage.TotalTokens)
+	if resp.Usage.TotalTokens != 120 {
+		t.Errorf("TotalTokens = %d, want 120", resp.Usage.TotalTokens)
 	}
 	if len(resp.ToolCalls) != 0 {
 		t.Errorf("ToolCalls should be empty, got %d", len(resp.ToolCalls))
@@ -233,8 +233,8 @@ func TestParseJSONLEvents_DispatchStatusFromFixture(t *testing.T) {
 	if s.NumTurns < 1 {
 		t.Errorf("NumTurns = %d, want >= 1", s.NumTurns)
 	}
-	if s.InputTokens != 13707 {
-		t.Errorf("InputTokens = %d, want 13707", s.InputTokens)
+	if s.InputTokens != 6155 {
+		t.Errorf("InputTokens = %d, want 6155 (13707 less 7552 cached)", s.InputTokens)
 	}
 	if s.OutputTokens != 5 {
 		t.Errorf("OutputTokens = %d, want 5", s.OutputTokens)
@@ -244,6 +244,9 @@ func TestParseJSONLEvents_DispatchStatusFromFixture(t *testing.T) {
 	}
 	if s.CacheCreationTokens != 0 {
 		t.Errorf("CacheCreationTokens = %d, want 0 (codex does not report)", s.CacheCreationTokens)
+	}
+	if s.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *s.CostUSD)
 	}
 	if s.StopReason != "success" {
 		t.Errorf("StopReason = %q, want success", s.StopReason)
@@ -409,8 +412,8 @@ func TestCodexCliProvider_MockCLI_Success(t *testing.T) {
 	if resp.Usage == nil {
 		t.Fatal("Usage should not be nil")
 	}
-	if resp.Usage.PromptTokens != 60 {
-		t.Errorf("PromptTokens = %d, want 60", resp.Usage.PromptTokens)
+	if resp.Usage.PromptTokens != 50 {
+		t.Errorf("PromptTokens = %d, want 50", resp.Usage.PromptTokens)
 	}
 	if resp.Usage.CompletionTokens != 15 {
 		t.Errorf("CompletionTokens = %d, want 15", resp.Usage.CompletionTokens)

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/logger"
 )
 
@@ -139,7 +140,7 @@ func (p *AntigravityCliProvider) messagesToPrompt(messages []Message) string {
 		case "assistant":
 			parts = append(parts, "Assistant: "+escapeConvMarkers(msg.Content))
 		case "tool":
-			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content))
+			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, common.ToolResultText(msg)))
 		}
 	}
 

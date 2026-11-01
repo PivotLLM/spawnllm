@@ -52,18 +52,26 @@ type LLMResponse struct {
 // (success or error) and surfaced in the LLMResponse so the agent loop
 // can write a uniform finish event.
 type DispatchStatus struct {
-	Success             bool    `json:"success"`
-	Model               string  `json:"model"`
-	NumTurns            int     `json:"num_turns"`
-	InputTokens         int     `json:"input_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	CacheReadTokens     int     `json:"cache_read_tokens"`
-	CacheCreationTokens int     `json:"cache_creation_tokens"`
-	StopReason          string  `json:"stop_reason"`
-	CostUSD             float64 `json:"cost_usd"`
-	DurationMs          int64   `json:"duration_ms"`
-	BytesSent           int64   `json:"bytes_sent"`
-	BytesReceived       int64   `json:"bytes_received"`
+	Success  bool   `json:"success"`
+	Model    string `json:"model"`
+	NumTurns int    `json:"num_turns"`
+	// InputTokens counts the input tokens neither read from nor written to
+	// the prompt cache, on every provider (Anthropic's meaning of
+	// input_tokens). InputTokens + CacheReadTokens + CacheCreationTokens is
+	// the whole prompt, which UsageInfo.PromptTokens reports.
+	InputTokens         int    `json:"input_tokens"`
+	OutputTokens        int    `json:"output_tokens"`
+	CacheReadTokens     int    `json:"cache_read_tokens"`
+	CacheCreationTokens int    `json:"cache_creation_tokens"`
+	StopReason          string `json:"stop_reason"`
+	// CostUSD is the request's cost as the provider reported it; nil when the
+	// provider returned no cost, which is not the same as a reported $0.00.
+	// Set by the Claude CLI (total_cost_usd) and by OpenAI-compatible requests
+	// to OpenRouter (usage.cost, in credits: US dollars).
+	CostUSD       *float64 `json:"cost_usd"`
+	DurationMs    int64    `json:"duration_ms"`
+	BytesSent     int64    `json:"bytes_sent"`
+	BytesReceived int64    `json:"bytes_received"`
 	// DeniedTools lists the tools an agentic CLI wanted to call but was refused
 	// by its own permission system during this request (the Claude CLI's
 	// permission_denials). The CLI still reports success and answers in prose,
@@ -127,11 +135,34 @@ type Message struct {
 	// redacted_thinking blocks verbatim, sent back before its text and tool_use
 	// blocks on the next request when thinking is on. Persisted with history.
 	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
+	// ToolReferences names the tools a tool result makes available: the
+	// matches of the host's own tool search. On a provider that loads deferred
+	// tools natively (see ToolDefinition.Deferred) they are sent as tool
+	// references, which load those tools' definitions into the model's context
+	// without changing the request's tool list; elsewhere they are appended to
+	// Content as text ("Tools found: a, b"). Only meaningful on a tool result.
+	// Persisted with history.
+	ToolReferences []string `json:"tool_references,omitempty"`
 }
 
 type ToolDefinition struct {
 	Type     string                 `json:"type"`
 	Function ToolFunctionDefinition `json:"function"`
+	// Deferred sends the tool's definition with the request but keeps it out
+	// of the model's context until a tool result names it in
+	// Message.ToolReferences. A provider that does not support deferred tools
+	// natively for the model in use sends a deferred tool, as an ordinary
+	// tool, only once a message in the request's history names it in
+	// ToolReferences, after the other tools in order of first reference; the
+	// rest are left out. A host can therefore send the same full tool list to
+	// every provider. Never on the wire as is.
+	Deferred bool `json:"-"`
+	// ToolSearch marks the host's own tool-search tool: the tool whose results
+	// carry Message.ToolReferences. It is never deferred (Deferred is ignored
+	// on it). On the OpenAI Responses API it is sent as the client-executed
+	// tool_search tool when the request has deferred tools; elsewhere it is an
+	// ordinary function. Never on the wire as is.
+	ToolSearch bool `json:"-"`
 }
 
 type ToolFunctionDefinition struct {

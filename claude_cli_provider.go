@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/logger"
 )
 
@@ -137,7 +138,7 @@ func (p *ClaudeCliProvider) messagesToPrompt(messages []Message) string {
 		case "assistant":
 			parts = append(parts, "Assistant: "+escapeConvMarkers(msg.Content))
 		case "tool":
-			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content))
+			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, common.ToolResultText(msg)))
 		}
 	}
 
@@ -212,13 +213,22 @@ func (p *ClaudeCliProvider) parseClaudeCliResponse(output string) (*LLMResponse,
 		map[string]any{
 			"subtype":       resp.Subtype,
 			"num_turns":     resp.NumTurns,
-			"cost_usd":      resp.TotalCostUSD,
+			"cost_usd":      costForLog(resp.TotalCostUSD),
 			"duration_ms":   resp.DurationMS,
 			"content_chars": len(strings.TrimSpace(content)),
 			"denied_tools":  len(resp.PermissionDenials),
 		})
 
 	return result, nil
+}
+
+// costForLog renders a reported cost for a log line: the number, or "unknown"
+// when none was reported.
+func costForLog(cost *float64) any {
+	if cost == nil {
+		return "unknown"
+	}
+	return *cost
 }
 
 // claudeCliDeniedTools returns the distinct tool names in the envelope's
@@ -319,7 +329,7 @@ type claudeCliJSONResponse struct {
 	IsError      bool                              `json:"is_error"`
 	Result       string                            `json:"result"`
 	SessionID    string                            `json:"session_id"`
-	TotalCostUSD float64                           `json:"total_cost_usd"`
+	TotalCostUSD *float64                          `json:"total_cost_usd"` // nil when the envelope has none
 	DurationMS   int                               `json:"duration_ms"`
 	DurationAPI  int                               `json:"duration_api_ms"`
 	NumTurns     int                               `json:"num_turns"`

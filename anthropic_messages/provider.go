@@ -51,6 +51,12 @@ type Provider struct {
 // option turns on Anthropic adaptive thinking.
 func (p *Provider) SupportsThinking() bool { return true }
 
+// SupportsDeferredTools implements spawnllm.DeferredToolsCapable: Claude 4.5
+// and later load deferred tools natively (defer_loading, tool_reference).
+func (p *Provider) SupportsDeferredTools(model string) bool {
+	return common.AnthropicSupportsDeferredTools(model)
+}
+
 // NewProvider creates a new Anthropic Messages API provider.
 func NewProvider(apiKey, apiBase string) *Provider {
 	return NewProviderWithTimeout(apiKey, apiBase, 0)
@@ -508,6 +514,15 @@ func buildRequestBody(
 	// assistant turns are sent back.
 	thinkingOn := applyThinking(result, options)
 
+	// Deferred tools: sent with defer_loading on a model that supports them,
+	// otherwise only those a tool result has referenced are sent, as ordinary
+	// tools (common.RequestTools), and tool references go as text.
+	native := common.AnthropicSupportsDeferredTools(model)
+	if !native {
+		tools = common.RequestTools(tools, messages)
+	}
+	sentTools := toolNames(tools)
+
 	// Process messages
 	var systemPrompt string
 	var apiMessages []any
@@ -525,16 +540,9 @@ func buildRequestBody(
 		case "user":
 			if msg.ToolCallID != "" {
 				// Tool result message
-				content := []map[string]any{
-					{
-						"type":        "tool_result",
-						"tool_use_id": msg.ToolCallID,
-						"content":     msg.Content,
-					},
-				}
 				apiMessages = append(apiMessages, map[string]any{
 					"role":    "user",
-					"content": content,
+					"content": []map[string]any{toolResultBlock(msg, native, sentTools)},
 				})
 			} else {
 				// Regular user message
@@ -580,16 +588,9 @@ func buildRequestBody(
 
 		case "tool":
 			// Tool result (alternative format)
-			content := []map[string]any{
-				{
-					"type":        "tool_result",
-					"tool_use_id": msg.ToolCallID,
-					"content":     msg.Content,
-				},
-			}
 			apiMessages = append(apiMessages, map[string]any{
 				"role":    "user",
-				"content": content,
+				"content": []map[string]any{toolResultBlock(msg, native, sentTools)},
 			})
 		}
 	}
@@ -606,12 +607,17 @@ func buildRequestBody(
 		result["tools"] = buildTools(tools)
 	}
 
+	// Automatic prompt caching: the API puts a breakpoint on the last
+	// cacheable block, so each call in a tool loop reads the shared prefix
+	// (tools, system, earlier messages) from cache. This path sets no explicit
+	// markers, so it can neither exceed the breakpoint limit nor conflict on TTL.
+	result["cache_control"] = map[string]any{"type": "ephemeral"}
+
 	return result, nil
 }
 
 // applyThinking sets the thinking parameters for options["thinking_level"],
-// with the same mapping as the SDK-based anthropic provider
-// (common.AnthropicThinking):
+// mapped by common.AnthropicThinking:
 //
 //	"adaptive"                          → thinking {type: adaptive}
 //	"low/medium/high/xhigh/max"         → thinking {type: adaptive} + output_config {effort: <level>}
@@ -643,9 +649,55 @@ func buildTools(tools []ToolDefinition) []any {
 			"description":  tool.Function.Description,
 			"input_schema": tool.Function.Parameters,
 		}
+		if common.IsDeferred(tool) {
+			toolDef["defer_loading"] = true
+		}
 		result[i] = toolDef
 	}
 	return result
+}
+
+// toolNames returns the set of tool names in a request's tool list.
+func toolNames(tools []ToolDefinition) map[string]bool {
+	names := make(map[string]bool, len(tools))
+	for _, t := range tools {
+		names[t.Function.Name] = true
+	}
+	return names
+}
+
+// toolResultBlock builds a tool_result block for a tool result message. Its
+// tool references become tool_reference blocks when native is set and the tool
+// is in the request (the API refuses a reference to any other); the rest, and
+// all of them otherwise, are named in the text. A result with no reference
+// blocks keeps the plain string content.
+func toolResultBlock(msg Message, native bool, sentTools map[string]bool) map[string]any {
+	var refs, asText []string
+	for _, name := range msg.ToolReferences {
+		if native && sentTools[name] {
+			refs = append(refs, name)
+		} else {
+			asText = append(asText, name)
+		}
+	}
+	text := common.WithToolsFound(msg.Content, asText)
+	block := map[string]any{
+		"type":        "tool_result",
+		"tool_use_id": msg.ToolCallID,
+	}
+	if len(refs) == 0 {
+		block["content"] = text
+		return block
+	}
+	content := make([]map[string]any, 0, 1+len(refs))
+	if text != "" {
+		content = append(content, map[string]any{"type": "text", "text": text})
+	}
+	for _, name := range refs {
+		content = append(content, map[string]any{"type": "tool_reference", "tool_name": name})
+	}
+	block["content"] = content
+	return block
 }
 
 // parseResponseBody parses Anthropic Messages API response.
@@ -709,6 +761,10 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		finishReason = "stop"
 	}
 
+	// input_tokens counts only what follows the last cache breakpoint; the
+	// prompt's full size adds the tokens read from and written to the cache.
+	promptTokens := resp.Usage.InputTokens + resp.Usage.CacheReadInputTokens + resp.Usage.CacheCreationInputTokens
+
 	status := &DispatchStatus{
 		Success:             true,
 		Model:               resp.Model,
@@ -728,9 +784,9 @@ func parseResponseBody(body []byte) (*LLMResponse, error) {
 		FinishReason:      finishReason,
 		Normal:            finishReason == "stop" || finishReason == "tool_calls",
 		Usage: &UsageInfo{
-			PromptTokens:     int(resp.Usage.InputTokens),
+			PromptTokens:     int(promptTokens),
 			CompletionTokens: int(resp.Usage.OutputTokens),
-			TotalTokens:      int(resp.Usage.InputTokens + resp.Usage.OutputTokens),
+			TotalTokens:      int(promptTokens + resp.Usage.OutputTokens),
 		},
 		Status: status,
 	}, nil

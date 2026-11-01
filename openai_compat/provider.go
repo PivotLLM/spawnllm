@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -237,6 +238,21 @@ func (p *Provider) Chat(
 		return nil, errors.New("API base not configured")
 	}
 
+	// Deferred tools are not loaded natively on Chat Completions: only those a
+	// tool result has referenced are sent, as ordinary tools
+	// (common.RequestTools); tool references in results are sent as text
+	// (serializeMessages).
+	//
+	// OpenRouter's tool search (beta: function.defer_loading plus a top-level
+	// deferred_tools object) is not used. On Chat Completions its documentation
+	// gives no shape for a client tool result that loads deferred tools: the
+	// tool_reference block is described for the Messages API only, and the
+	// "custom" search type says only that matching names are returned "under
+	// result_key", without the result's format or what tool_id names. It is
+	// also enabled per account. So this provider does not implement
+	// DeferredToolsCapable, and the host reveals tools itself here.
+	tools = common.RequestTools(tools, messages)
+
 	if p.strictAlternation {
 		messages = normalizeAlternation(messages)
 	}
@@ -315,6 +331,20 @@ func (p *Provider) Chat(
 		if supportsPromptCacheKey(p.apiBase) {
 			requestBody["prompt_cache_key"] = cacheKey
 		}
+		// OpenRouter keeps a conversation on the same upstream (and so on that
+		// upstream's prompt cache) when the request names a session_id; the
+		// caller's cache key is exactly that per-conversation identity.
+		if isOpenRouterHost(p.apiBase) {
+			requestBody["session_id"] = truncateUTF8(cacheKey, openRouterSessionIDMax)
+		}
+	}
+
+	// Claude models reached through OpenRouter cache only with cache_control;
+	// the top-level field turns on automatic caching (a breakpoint on the last
+	// cacheable block), as it does on the Anthropic API itself. Other models
+	// cache automatically and do not take the field.
+	if isOpenRouterHost(p.apiBase) && isOpenRouterClaudeModel(model) {
+		requestBody["cache_control"] = map[string]any{"type": "ephemeral"}
 	}
 
 	if p.reasoningEffort != "" {
@@ -429,7 +459,7 @@ func (p *Provider) Chat(
 		return p.readStream(resp, streamCB, tools, model, corrID, bytesSent, start)
 	}
 
-	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools))
+	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools), p.parseOptions()...)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return httpErrorStatus(model, "parse_error", durationMs, bytesSent, bytesReceived), err
@@ -461,7 +491,7 @@ func (p *Provider) readStream(
 	start time.Time,
 ) (*LLMResponse, error) {
 	counter := &countingReader{r: resp.Body}
-	out, body, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools))
+	out, body, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools), p.parseOptions()...)
 	durationMs := time.Since(start).Milliseconds()
 
 	if p.responseLogFile != "" && len(body) > 0 {
@@ -490,6 +520,16 @@ func (p *Provider) readStream(
 		}
 	}
 	return out, nil
+}
+
+// parseOptions returns the response-parsing options for this endpoint. Only
+// OpenRouter's usage.cost is known to be in US dollars (credits, 1 credit =
+// $1), so the cost is read from no other host.
+func (p *Provider) parseOptions() []common.ParseOption {
+	if isOpenRouterHost(p.apiBase) {
+		return []common.ParseOption{common.WithUsageCost()}
+	}
+	return nil
 }
 
 // countingReader tracks bytes read so streaming can report BytesReceived.
@@ -555,7 +595,7 @@ func normalizeAlternation(in []Message) []Message {
 	rewritten := make([]Message, 0, len(in))
 	for _, msg := range in {
 		role := msg.Role
-		content := msg.Content
+		content := common.ToolResultText(msg)
 		switch role {
 		case "system", "developer":
 			if strings.TrimSpace(content) != "" {
@@ -626,6 +666,7 @@ func normalizeAlternation(in []Message) []Message {
 func serializeMessages(messages []Message, strictCompat bool) []any {
 	out := make([]any, 0, len(messages))
 	for _, m := range messages {
+		m.Content = common.ToolResultText(m)
 		toolCalls := common.WireToolCalls(m.ToolCalls)
 		reasoningContent := m.ReasoningContent
 
@@ -903,4 +944,41 @@ func supportsPromptCacheKey(apiBase string) bool {
 	}
 	host := u.Hostname()
 	return host == "api.openai.com" || strings.HasSuffix(host, ".openai.azure.com")
+}
+
+// openRouterSessionIDMax is the longest session_id OpenRouter accepts.
+const openRouterSessionIDMax = 256
+
+// isOpenRouterHost reports whether apiBase's host is openrouter.ai (or a
+// subdomain of it). Unlike isOpenRouterBase it ignores the path, so a proxy
+// whose path merely mentions openrouter.ai does not match.
+func isOpenRouterHost(apiBase string) bool {
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
+// isOpenRouterClaudeModel reports whether an OpenRouter model id names an
+// Anthropic model. OpenRouter namespaces every model by its author, and all of
+// Anthropic's are "anthropic/<id>" (with optional ":variant" suffixes); a
+// leading "~" marks OpenRouter's moving aliases ("~anthropic/claude-...").
+func isOpenRouterClaudeModel(model string) bool {
+	m := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "~")
+	return strings.HasPrefix(m, "anthropic/")
+}
+
+// truncateUTF8 returns s cut to at most maxBytes bytes without splitting a
+// UTF-8 sequence.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

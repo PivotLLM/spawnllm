@@ -80,6 +80,9 @@ func TestChat_StreamingText(t *testing.T) {
 	if out.Status.Model != "gpt-4o" {
 		t.Fatalf("Status.Model = %q, want gpt-4o", out.Status.Model)
 	}
+	if out.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *out.Status.CostUSD)
+	}
 }
 
 func TestChat_StreamingToolCall(t *testing.T) {

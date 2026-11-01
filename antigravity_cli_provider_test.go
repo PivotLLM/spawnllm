@@ -128,6 +128,9 @@ func TestAntigravityCliProvider_Chat_ParsesResponse(t *testing.T) {
 	if resp.Status.DurationMs != 895 {
 		t.Errorf("DurationMs = %d, want 895 (from duration_seconds)", resp.Status.DurationMs)
 	}
+	if resp.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *resp.Status.CostUSD)
+	}
 }
 
 // Success is carried by status, not an is_error flag. Anything that is not

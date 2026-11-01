@@ -828,8 +828,8 @@ func TestParseClaudeCliResponse_DispatchStatusFromFixture(t *testing.T) {
 	if s.StopReason != "end_turn" {
 		t.Errorf("StopReason = %q, want end_turn", s.StopReason)
 	}
-	if s.CostUSD != 0.104551 {
-		t.Errorf("CostUSD = %f, want 0.104551", s.CostUSD)
+	if s.CostUSD == nil || *s.CostUSD != 0.104551 {
+		t.Errorf("CostUSD = %v, want 0.104551", s.CostUSD)
 	}
 	if s.DurationMs != 2753 {
 		t.Errorf("DurationMs = %d, want 2753", s.DurationMs)
@@ -999,5 +999,37 @@ func TestStripModelContextSuffix(t *testing.T) {
 		if got := stripModelContextSuffix(tc.in); got != tc.want {
 			t.Errorf("stripModelContextSuffix(%q) = %q, want %q", tc.in, got, tc.want)
 		}
+	}
+}
+
+// TestParseClaudeCliResponse_CostReportedOrNil asserts that CostUSD is set
+// only when the envelope carries total_cost_usd, and that a reported $0.00 is
+// kept apart from no cost.
+func TestParseClaudeCliResponse_CostReportedOrNil(t *testing.T) {
+	p := NewClaudeCliProvider("", "/workspace", nil, nil)
+	tests := []struct {
+		name string
+		cost string // "" = field absent
+		want *float64
+	}{
+		{"reported", `,"total_cost_usd":0.25`, new(0.25)},
+		{"reported zero", `,"total_cost_usd":0`, new(0.0)},
+		{"absent", "", nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			output := `{"type":"result","subtype":"success","is_error":false,"result":"ok"` + tt.cost + `}`
+			resp, err := p.parseClaudeCliResponse(output)
+			if err != nil {
+				t.Fatalf("parseClaudeCliResponse() error = %v", err)
+			}
+			got := resp.Status.CostUSD
+			switch {
+			case tt.want == nil && got != nil:
+				t.Errorf("CostUSD = %v, want nil", *got)
+			case tt.want != nil && (got == nil || *got != *tt.want):
+				t.Errorf("CostUSD = %v, want %v", got, *tt.want)
+			}
+		})
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/PivotLLM/spawnllm/common"
 	"github.com/PivotLLM/spawnllm/logger"
 )
 
@@ -124,7 +125,7 @@ func (p *CursorCliProvider) messagesToPrompt(messages []Message) string {
 		case "assistant":
 			parts = append(parts, "Assistant: "+escapeConvMarkers(msg.Content))
 		case "tool":
-			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, msg.Content))
+			parts = append(parts, fmt.Sprintf("[Tool Result for %s]: %s", msg.ToolCallID, common.ToolResultText(msg)))
 		}
 	}
 
@@ -205,13 +206,14 @@ func buildCursorCliStatus(resp *cursorCliJSONResponse) *DispatchStatus {
 		stopReason = "error"
 	}
 	return &DispatchStatus{
-		Success:         !resp.IsError,
-		Model:           resp.Model,
-		InputTokens:     resp.Usage.InputTokens,
-		OutputTokens:    resp.Usage.OutputTokens,
-		CacheReadTokens: resp.Usage.CacheReadTokens,
-		StopReason:      stopReason,
-		DurationMs:      int64(resp.DurationMS),
+		Success:             !resp.IsError,
+		Model:               resp.Model,
+		InputTokens:         resp.Usage.InputTokens,
+		OutputTokens:        resp.Usage.OutputTokens,
+		CacheReadTokens:     resp.Usage.CacheReadTokens,
+		CacheCreationTokens: resp.Usage.CacheWriteTokens,
+		StopReason:          stopReason,
+		DurationMs:          int64(resp.DurationMS),
 	}
 }
 

@@ -20,9 +20,11 @@ import (
 // from its own config, then hands spawnllm a fully-resolved spec — spawnllm
 // performs no model selection, config lookup, or credential resolution.
 type ProviderSpec struct {
-	// Kind selects the wire protocol / transport: "openai-chat",
-	// "openai-responses", "azure", "anthropic", "anthropic-messages",
-	// "claude-cli", "codex-cli", "antigravity-cli", "cursor-cli".
+	// Kind selects the wire protocol / transport: "openai-chat" (any
+	// OpenAI-compatible Chat Completions endpoint), "openai-responses",
+	// "azure", "anthropic" or "anthropic-messages" (both the Anthropic
+	// Messages API), "claude-cli", "codex-cli", "antigravity-cli",
+	// "cursor-cli".
 	Kind string
 
 	// API providers.
@@ -260,7 +262,7 @@ func (w *Worker) execTool(ctx context.Context, tc ToolCall) string {
 func buildProvider(spec ProviderSpec) (LLMProvider, string, error) {
 	secs := int(spec.Timeout / time.Second)
 	switch spec.Kind {
-	case "openai-chat", "anthropic":
+	case "openai-chat":
 		return NewHTTPProviderWithOptions(spec.APIKey, spec.BaseURL, spec.Proxy,
 			openai_compat.WithRequestTimeout(spec.Timeout),
 			openai_compat.WithModelLabel(spec.Model),
@@ -272,12 +274,16 @@ func buildProvider(spec ProviderSpec) (LLMProvider, string, error) {
 		), spec.Model, nil
 	case "azure":
 		return azure.NewProviderWithTimeout(spec.APIKey, spec.BaseURL, spec.Proxy, secs), spec.Model, nil
-	case "anthropic-messages":
+	// Anthropic has one wire format, the Messages API, so "anthropic" and
+	// "anthropic-messages" name the same client.
+	case "anthropic", "anthropic-messages":
 		return anthropicmessages.NewProviderWithTimeout(spec.APIKey, spec.BaseURL, secs), spec.Model, nil
 	case "claude-cli":
 		return NewClaudeCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	case "codex-cli":
 		return NewCodexCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
+	case "cursor-cli":
+		return NewCursorCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	// "gemini-cli" is accepted as an alias: Google deprecated the Gemini CLI in
 	// favour of Antigravity, so an existing config naming it keeps working and
 	// runs agy instead.
