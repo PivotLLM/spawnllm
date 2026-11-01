@@ -16,6 +16,7 @@ func TestBuildProvider_KindSelectsClient(t *testing.T) {
 		{"anthropic", isAnthropicMessages, "*anthropicmessages.Provider"},
 		{"anthropic-messages", isAnthropicMessages, "*anthropicmessages.Provider"},
 		{"openai-chat", isHTTPProvider, "*spawnllm.HTTPProvider"},
+		{"cursor-cli", isCursorCli, "*spawnllm.CursorCliProvider"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.kind, func(t *testing.T) {
@@ -46,5 +47,10 @@ func isAnthropicMessages(p LLMProvider) bool {
 
 func isHTTPProvider(p LLMProvider) bool {
 	_, ok := p.(*HTTPProvider)
+	return ok
+}
+
+func isCursorCli(p LLMProvider) bool {
+	_, ok := p.(*CursorCliProvider)
 	return ok
 }

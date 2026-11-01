@@ -282,6 +282,8 @@ func buildProvider(spec ProviderSpec) (LLMProvider, string, error) {
 		return NewClaudeCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	case "codex-cli":
 		return NewCodexCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
+	case "cursor-cli":
+		return NewCursorCliProviderWithTimeout(spec.CLIPath, spec.Workspace, spec.Timeout, spec.ExtraArgs, spec.Env), spec.Model, nil
 	// "gemini-cli" is accepted as an alias: Google deprecated the Gemini CLI in
 	// favour of Antigravity, so an existing config naming it keeps working and
 	// runs agy instead.

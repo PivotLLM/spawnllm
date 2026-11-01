@@ -128,5 +128,6 @@ All notable changes to spawnllm are recorded here. The format follows
 - Codex CLI: `Usage.PromptTokens` (and `TotalTokens`) no longer counts
   cached tokens twice. Codex's `input_tokens` already includes
   `cached_input_tokens`, which was added to it again.
+- Provider kind "cursor-cli" is now built by buildProvider; it was documented but returned "unknown provider kind".
 
 [0.1.20]: https://github.com/PivotLLM/spawnllm/compare/v0.1.19...HEAD
