@@ -61,6 +61,15 @@ All notable changes to spawnllm are recorded here. The format follows
 
 ### Changed
 
+- **BREAKING** `DispatchStatus.CostUSD` is now `*float64` (JSON `cost_usd`
+  is `null` when unset). nil means the provider returned no cost; a non-nil
+  value is the cost it reported, $0.00 included. Only the Claude CLI provider
+  reports one (`total_cost_usd`); every HTTP provider (`anthropic`,
+  `anthropic-messages`, `openai-chat`, `openai-responses`, `azure`) and the
+  other CLIs leave it nil, where they used to report 0. Migration: callers
+  reading `CostUSD` directly test for nil before dereferencing it (for
+  example print `cost=unknown` for nil) and add nothing to a running total
+  for nil.
 - Anthropic: `Usage.PromptTokens` (and so `TotalTokens`) now counts every
   input token, `input_tokens` plus cache reads and cache writes, as the CLI
   providers and the OpenAI-shaped providers already do. With caching on,

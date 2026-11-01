@@ -137,6 +137,9 @@ func TestParseResponseBody_CacheTokensInUsage(t *testing.T) {
 	if got.Status.InputTokens != 10 {
 		t.Errorf("Status.InputTokens = %d, want 10 (uncached input only)", got.Status.InputTokens)
 	}
+	if got.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *got.Status.CostUSD)
+	}
 	// The prompt's size is every input token, cached or not.
 	if got.Usage.PromptTokens != 92010 {
 		t.Errorf("Usage.PromptTokens = %d, want 92010", got.Usage.PromptTokens)

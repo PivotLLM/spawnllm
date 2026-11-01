@@ -52,18 +52,21 @@ type LLMResponse struct {
 // (success or error) and surfaced in the LLMResponse so the agent loop
 // can write a uniform finish event.
 type DispatchStatus struct {
-	Success             bool    `json:"success"`
-	Model               string  `json:"model"`
-	NumTurns            int     `json:"num_turns"`
-	InputTokens         int     `json:"input_tokens"`
-	OutputTokens        int     `json:"output_tokens"`
-	CacheReadTokens     int     `json:"cache_read_tokens"`
-	CacheCreationTokens int     `json:"cache_creation_tokens"`
-	StopReason          string  `json:"stop_reason"`
-	CostUSD             float64 `json:"cost_usd"`
-	DurationMs          int64   `json:"duration_ms"`
-	BytesSent           int64   `json:"bytes_sent"`
-	BytesReceived       int64   `json:"bytes_received"`
+	Success             bool   `json:"success"`
+	Model               string `json:"model"`
+	NumTurns            int    `json:"num_turns"`
+	InputTokens         int    `json:"input_tokens"`
+	OutputTokens        int    `json:"output_tokens"`
+	CacheReadTokens     int    `json:"cache_read_tokens"`
+	CacheCreationTokens int    `json:"cache_creation_tokens"`
+	StopReason          string `json:"stop_reason"`
+	// CostUSD is the request's cost as the provider reported it; nil when the
+	// provider returned no cost (every HTTP provider today), which is not the
+	// same as a reported $0.00.
+	CostUSD       *float64 `json:"cost_usd"`
+	DurationMs    int64    `json:"duration_ms"`
+	BytesSent     int64    `json:"bytes_sent"`
+	BytesReceived int64    `json:"bytes_received"`
 	// DeniedTools lists the tools an agentic CLI wanted to call but was refused
 	// by its own permission system during this request (the Claude CLI's
 	// permission_denials). The CLI still reports success and answers in prose,

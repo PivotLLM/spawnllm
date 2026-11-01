@@ -141,6 +141,9 @@ func TestChat_CacheWriteTokensParsed(t *testing.T) {
 		t.Errorf("cache read/creation = %d/%d, want 600/300",
 			out.Status.CacheReadTokens, out.Status.CacheCreationTokens)
 	}
+	if out.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *out.Status.CostUSD)
+	}
 	// prompt_tokens already counts cached and written tokens: not added again.
 	if out.Usage.PromptTokens != 1000 || out.Usage.TotalTokens != 1010 {
 		t.Errorf("usage = %+v, want prompt 1000 total 1010", out.Usage)

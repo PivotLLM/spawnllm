@@ -433,6 +433,9 @@ func TestChat_CacheUsageDetails(t *testing.T) {
 		t.Errorf("cache read/creation = %d/%d, want 700/200",
 			out.Status.CacheReadTokens, out.Status.CacheCreationTokens)
 	}
+	if out.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *out.Status.CostUSD)
+	}
 	// input_tokens already includes the cached and written tokens.
 	if out.Usage.PromptTokens != 1000 {
 		t.Errorf("PromptTokens = %d, want 1000", out.Usage.PromptTokens)

@@ -245,6 +245,9 @@ func TestParseJSONLEvents_DispatchStatusFromFixture(t *testing.T) {
 	if s.CacheCreationTokens != 0 {
 		t.Errorf("CacheCreationTokens = %d, want 0 (codex does not report)", s.CacheCreationTokens)
 	}
+	if s.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *s.CostUSD)
+	}
 	if s.StopReason != "success" {
 		t.Errorf("StopReason = %q, want success", s.StopReason)
 	}

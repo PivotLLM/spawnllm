@@ -58,6 +58,9 @@ func TestCursorCliProvider_Chat_ParsesResult(t *testing.T) {
 	if resp.Status == nil || !resp.Status.Success {
 		t.Error("expected a successful DispatchStatus")
 	}
+	if resp.Status.CostUSD != nil {
+		t.Errorf("CostUSD = %v, want nil (no cost reported)", *resp.Status.CostUSD)
+	}
 }
 
 // TestCursorCliProvider_Chat_Error surfaces an is_error envelope as an error.
