@@ -72,6 +72,12 @@ All notable changes to spawnllm are recorded here. The format follows
 
 ### Changed
 
+- **BREAKING** `ProviderSpec.Kind` `"anthropic"` now uses the Anthropic
+  Messages client, the same as `"anthropic-messages"`, instead of the
+  OpenAI-compatible client, which sent OpenAI-shaped requests to Anthropic.
+  Migration: a caller that relied on the old behaviour (for example pointing
+  `"anthropic"` at an OpenAI-compatible endpoint such as Anthropic's OpenAI
+  SDK compatibility layer) sets `Kind` to `"openai-chat"`.
 - **BREAKING** `DispatchStatus.CostUSD` is now `*float64` (JSON `cost_usd`
   is `null` when unset). nil means the provider returned no cost; a non-nil
   value is the cost it reported, $0.00 included. Only the Claude CLI provider
