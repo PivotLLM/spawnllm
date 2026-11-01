@@ -617,8 +617,7 @@ func buildRequestBody(
 }
 
 // applyThinking sets the thinking parameters for options["thinking_level"],
-// with the same mapping as the SDK-based anthropic provider
-// (common.AnthropicThinking):
+// mapped by common.AnthropicThinking:
 //
 //	"adaptive"                          → thinking {type: adaptive}
 //	"low/medium/high/xhigh/max"         → thinking {type: adaptive} + output_config {effort: <level>}

@@ -111,7 +111,7 @@ func TestCompressionRequest_OmitsResponseFormat_AdHocCompatProtocol(t *testing.T
 // TestCompressionRequest_OmitsResponseFormat_Anthropic — when an Anthropic
 // model routes through the openai-compat HTTP path (api_key auth), the
 // "anthropic" protocol is not on the capable list and the request stays
-// quiet. Anthropic native (anthropic-messages, OAuth Claude) bypasses
+// quiet. Anthropic native (anthropic-messages) bypasses
 // this provider entirely; the option is a no-op there by construction.
 func TestCompressionRequest_OmitsResponseFormat_Anthropic(t *testing.T) {
 	body := captureChatRequestBody(t,

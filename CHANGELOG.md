@@ -8,13 +8,11 @@ All notable changes to spawnllm are recorded here. The format follows
 
 ### Added
 
-- Anthropic (`anthropic` and `anthropic-messages`): every Messages request now
-  carries the top-level `cache_control: {"type": "ephemeral"}`, which turns on
-  automatic prompt caching. Repeated calls in a tool loop read the shared
-  prefix (tools, system prompt, earlier messages) from cache instead of paying
-  full input price. The `anthropic` provider still honours `SystemParts`
-  cache markers and leaves the automatic marker out when four explicit
-  markers already fill the request's breakpoint limit.
+- Anthropic (`anthropic-messages`): every Messages request now carries the
+  top-level `cache_control: {"type": "ephemeral"}`, which turns on automatic
+  prompt caching. Repeated calls in a tool loop read the shared prefix (tools,
+  system prompt, earlier messages) from cache instead of paying full input
+  price.
 - OpenRouter (`openai-chat` against `openrouter.ai`): Claude models
   (`anthropic/...` ids) are sent the top-level
   `cache_control: {"type": "ephemeral"}`, without which OpenRouter does not
@@ -35,8 +33,8 @@ All notable changes to spawnllm are recorded here. The format follows
   search found, which loads them. The optional interface
   `DeferredToolsCapable` (`SupportsDeferredTools(model string) bool`) tells
   the host whether a provider does this natively for a model, so it can send
-  the same full tool list on every request and keep the prompt cache. Both
-  Anthropic providers (and `ClaudeProvider`) support it for Claude 4.5 and
+  the same full tool list on every request and keep the prompt cache. The
+  Anthropic provider (`anthropic-messages`) supports it for Claude 4.5 and
   later: deferred tools are sent with `defer_loading: true`, and references as
   `tool_reference` blocks in the `tool_result` (with a text block before them
   when the result also has text). A reference to a tool not in the request is
@@ -78,7 +76,7 @@ All notable changes to spawnllm are recorded here. The format follows
   is `null` when unset). nil means the provider returned no cost; a non-nil
   value is the cost it reported, $0.00 included. Only the Claude CLI provider
   (`total_cost_usd`) and `openai-chat` against OpenRouter (`usage.cost`)
-  report one; every other HTTP provider (`anthropic`, `anthropic-messages`,
+  report one; every other HTTP provider (`anthropic-messages`,
   `openai-chat` elsewhere, `openai-responses`, `azure`) and the other CLIs
   leave it nil, where they used to report 0. Migration: callers
   reading `CostUSD` directly test for nil before dereferencing it (for
@@ -87,7 +85,7 @@ All notable changes to spawnllm are recorded here. The format follows
 - **BREAKING** `DispatchStatus.InputTokens` now means the same on every
   provider: the input tokens neither read from nor written to the prompt
   cache, so `InputTokens + CacheReadTokens + CacheCreationTokens` is the whole
-  prompt (`Usage.PromptTokens`). The Anthropic providers and the Claude,
+  prompt (`Usage.PromptTokens`). The Anthropic provider and the Claude,
   Cursor and Antigravity CLIs already reported it this way. `openai-chat`,
   `openai-responses`, `azure` and the Codex CLI reported the whole prompt,
   cached tokens included, so a host adding the three counted cached tokens
@@ -104,6 +102,20 @@ All notable changes to spawnllm are recorded here. The format follows
   `input_tokens` alone covers only what follows the last cache breakpoint.
   `DispatchStatus` keeps the three counts separate (`InputTokens`,
   `CacheReadTokens`, `CacheCreationTokens`).
+
+### Removed
+
+- **BREAKING** The SDK-based Anthropic client is gone: `ClaudeProvider`, its
+  constructors (`NewClaudeProvider`, `NewClaudeProviderWithBaseURL`,
+  `NewClaudeProviderWithTokenSource`,
+  `NewClaudeProviderWithTokenSourceAndBaseURL`) and the `anthropic` package
+  (`github.com/PivotLLM/spawnllm/anthropic`). It existed to call the API with
+  a Claude subscription login token, which Anthropic's terms do not allow for
+  third-party software. spawnllm no longer depends on
+  `github.com/anthropics/anthropic-sdk-go`. The `claude-cli` provider is
+  unaffected. Migration: use the `anthropic-messages` provider
+  (`anthropic_messages.NewProvider` or `NewProviderWithTimeout`) with an
+  Anthropic API key.
 
 ### Fixed
 

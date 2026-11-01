@@ -8,14 +8,10 @@ import (
 )
 
 func TestDeferredToolsCapability(t *testing.T) {
-	var p LLMProvider = NewClaudeProvider("k")
+	var p LLMProvider = anthropicmessages.NewProvider("k", "")
 	c, ok := p.(DeferredToolsCapable)
 	if !ok || !c.SupportsDeferredTools("claude-sonnet-4-6") || c.SupportsDeferredTools("claude-3-5-sonnet-20241022") {
-		t.Error("ClaudeProvider must report native support by model")
-	}
-	p = anthropicmessages.NewProvider("k", "")
-	if _, ok := p.(DeferredToolsCapable); !ok {
-		t.Error("anthropic_messages must implement DeferredToolsCapable")
+		t.Error("anthropic_messages must report native support by model")
 	}
 	p = NewHTTPProviderWithOptions("k", "https://openrouter.ai/api/v1", "")
 	if _, ok := p.(DeferredToolsCapable); ok {
