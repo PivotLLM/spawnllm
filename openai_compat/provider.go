@@ -240,6 +240,15 @@ func (p *Provider) Chat(
 
 	// Deferred tools are not loaded natively on Chat Completions: leave them
 	// out (tool references in results are sent as text, serializeMessages).
+	//
+	// OpenRouter's tool search (beta: function.defer_loading plus a top-level
+	// deferred_tools object) is not used. On Chat Completions its documentation
+	// gives no shape for a client tool result that loads deferred tools: the
+	// tool_reference block is described for the Messages API only, and the
+	// "custom" search type says only that matching names are returned "under
+	// result_key", without the result's format or what tool_id names. It is
+	// also enabled per account. So this provider does not implement
+	// DeferredToolsCapable, and the host reveals tools itself here.
 	tools = common.LoadedTools(tools)
 
 	if p.strictAlternation {
