@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
+func TestChat_ReferencedDeferredToolsSentAndReferencesAsText(t *testing.T) {
 	var body map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -22,6 +22,7 @@ func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
 
 	tools := []ToolDefinition{
 		{Type: "function", Function: ToolFunctionDefinition{Name: "search_tools"}},
+		{Type: "function", Function: ToolFunctionDefinition{Name: "read_file"}, Deferred: true},
 		{Type: "function", Function: ToolFunctionDefinition{Name: "get_weather"}, Deferred: true},
 	}
 	msgs := []Message{
@@ -34,15 +35,23 @@ func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
 		t.Fatalf("Chat: %v", err)
 	}
 
+	// read_file was never referenced: left out. get_weather was: an ordinary
+	// tool after the loaded ones.
 	sent := list(t, body["tools"])
-	if len(sent) != 1 {
-		t.Fatalf("tools = %v, want only search_tools", sent)
+	if len(sent) != 2 {
+		t.Fatalf("tools = %v, want search_tools, get_weather", sent)
 	}
 	if name := dig(t, sent, 0, "function", "name"); name != "search_tools" {
-		t.Errorf("tool = %v, want search_tools", name)
+		t.Errorf("tools[0] = %v, want search_tools", name)
 	}
-	if dig(t, sent, 0, "deferred") != nil || dig(t, sent, 0, "Deferred") != nil {
-		t.Error("the Deferred flag must not reach the wire")
+	if name := dig(t, sent, 1, "function", "name"); name != "get_weather" {
+		t.Errorf("tools[1] = %v, want get_weather", name)
+	}
+	for i := range sent {
+		if dig(t, sent, i, "deferred") != nil || dig(t, sent, i, "Deferred") != nil ||
+			dig(t, sent, i, "function", "defer_loading") != nil {
+			t.Errorf("tools[%d]: no defer marker may reach the wire", i)
+		}
 	}
 	if got := dig(t, body, "messages", 2, "content"); got != "Tools found: get_weather" {
 		t.Errorf("tool result content = %v, want the references as text", got)

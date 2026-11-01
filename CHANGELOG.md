@@ -53,11 +53,19 @@ All notable changes to spawnllm are recorded here. The format follows
   tools. That item has no room for text, so the result's own text is not sent
   there. `openai_responses.Provider` implements `DeferredToolsCapable` by the
   same model rule.
-- Every provider without native support (Chat Completions, Azure, the CLIs,
-  Responses models before gpt-5.4, and Anthropic models before 4.5) leaves deferred tools out of the
-  request and appends the references to the tool result as text
-  ("Tools found: a, b"), so a history that carries them still works after a
-  fallback to another provider.
+- Every provider without native support (Chat Completions, Azure, Responses
+  models before gpt-5.4 or requests without a tool-search tool, and Anthropic
+  models before 4.5) sends a deferred tool only once a message in the
+  request's history names it in `ToolReferences`, as an ordinary tool without
+  any defer marker, and leaves the other deferred tools out. Tools are sent
+  in a stable order: the non-deferred tools as given, then the referenced
+  ones in order of first reference, so the list only grows at its end as the
+  conversation goes on. References are appended to the tool result as text
+  ("Tools found: a, b"). A host can therefore always send its full tool list
+  with the not-yet-found tools marked `Deferred` and always return search
+  results as `ToolReferences`, whatever the provider, and a fallback from a
+  native provider to another keeps the tools already found. The CLI
+  providers take no tool list; they append the references as text.
 - OpenRouter (`openai-chat` against `openrouter.ai`): `DispatchStatus.CostUSD`
   is set from the response's `usage.cost` (OpenRouter credits, which are US
   dollars), streaming or not; a reported 0 is kept as $0.00 and a response

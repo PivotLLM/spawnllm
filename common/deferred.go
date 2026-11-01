@@ -11,22 +11,41 @@ func IsDeferred(t ToolDefinition) bool {
 	return t.Deferred && !t.ToolSearch
 }
 
-// LoadedTools returns tools without the deferred ones: the request tool list
-// for a provider that cannot load deferred tools natively. The input slice is
-// returned unchanged when nothing is deferred.
-func LoadedTools(tools []ToolDefinition) []ToolDefinition {
-	deferred := 0
-	for _, t := range tools {
+// RequestTools returns the request tool list for a provider that cannot load
+// deferred tools natively: the tools that are not deferred, in the order
+// given, then each deferred tool whose name appears in the ToolReferences of a
+// message in messages, in order of first reference, sent as an ordinary tool
+// (Deferred cleared). Every other deferred tool is left out. A tool the host's
+// search found therefore stays callable, and the list only grows at its end as
+// the history gains references, which keeps a cached prompt prefix valid. The
+// input slice is returned unchanged when nothing is deferred.
+func RequestTools(tools []ToolDefinition, messages []Message) []ToolDefinition {
+	deferred := make(map[string]int)
+	for i, t := range tools {
 		if IsDeferred(t) {
-			deferred++
+			if _, seen := deferred[t.Function.Name]; !seen {
+				deferred[t.Function.Name] = i
+			}
 		}
 	}
-	if deferred == 0 {
+	if len(deferred) == 0 {
 		return tools
 	}
-	out := make([]ToolDefinition, 0, len(tools)-deferred)
+	out := make([]ToolDefinition, 0, len(tools)-len(deferred))
 	for _, t := range tools {
 		if !IsDeferred(t) {
+			out = append(out, t)
+		}
+	}
+	for _, m := range messages {
+		for _, name := range m.ToolReferences {
+			i, ok := deferred[name]
+			if !ok {
+				continue
+			}
+			delete(deferred, name)
+			t := tools[i]
+			t.Deferred = false
 			out = append(out, t)
 		}
 	}

@@ -238,8 +238,10 @@ func (p *Provider) Chat(
 		return nil, errors.New("API base not configured")
 	}
 
-	// Deferred tools are not loaded natively on Chat Completions: leave them
-	// out (tool references in results are sent as text, serializeMessages).
+	// Deferred tools are not loaded natively on Chat Completions: only those a
+	// tool result has referenced are sent, as ordinary tools
+	// (common.RequestTools); tool references in results are sent as text
+	// (serializeMessages).
 	//
 	// OpenRouter's tool search (beta: function.defer_loading plus a top-level
 	// deferred_tools object) is not used. On Chat Completions its documentation
@@ -249,7 +251,7 @@ func (p *Provider) Chat(
 	// result_key", without the result's format or what tool_id names. It is
 	// also enabled per account. So this provider does not implement
 	// DeferredToolsCapable, and the host reveals tools itself here.
-	tools = common.LoadedTools(tools)
+	tools = common.RequestTools(tools, messages)
 
 	if p.strictAlternation {
 		messages = normalizeAlternation(messages)

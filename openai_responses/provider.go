@@ -152,11 +152,12 @@ func (p *Provider) Chat(
 	}
 
 	// Deferred tools load natively through client-executed tool search on
-	// models that support it (see newToolSearch); otherwise they are left out
+	// models that support it (see newToolSearch); otherwise only those a tool
+	// result has referenced are sent, as ordinary functions (common.RequestTools),
 	// and tool references in results are sent as text (functionCallOutput).
 	search := newToolSearch(tools, model)
 	if search == nil {
-		tools = common.LoadedTools(tools)
+		tools = common.RequestTools(tools, messages)
 	}
 
 	instructions, input := buildInput(messages, search)

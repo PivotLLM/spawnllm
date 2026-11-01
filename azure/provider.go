@@ -89,8 +89,9 @@ func (p *Provider) Chat(
 		return nil, errors.New("azure: API base not configured")
 	}
 
-	// Deferred tools are not loaded natively here: leave them out.
-	tools = common.LoadedTools(tools)
+	// Deferred tools are not loaded natively here: only those a tool result
+	// has referenced are sent, as ordinary tools (common.RequestTools).
+	tools = common.RequestTools(tools, messages)
 
 	// model is the deployment name for Azure OpenAI
 	deployment := model

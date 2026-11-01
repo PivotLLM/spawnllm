@@ -12,7 +12,8 @@ import (
 // tools load natively through client-executed tool search, which the
 // Responses API offers on gpt-5.4 and later (supportsToolSearch). The request
 // must also carry the host's tool-search tool (ToolDefinition.ToolSearch);
-// without one, deferred tools are left out as on any other provider.
+// without one, deferred tools are handled as on any other provider
+// (common.RequestTools).
 func (p *Provider) SupportsDeferredTools(model string) bool {
 	return supportsToolSearch(model)
 }

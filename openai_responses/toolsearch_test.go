@@ -116,10 +116,11 @@ func TestChat_ToolSearchNotUsed(t *testing.T) {
 		tools     []ToolDefinition
 		wantNames []string
 	}{
-		// Older model: deferred tools left out, the search tool is a function.
-		{"model before gpt-5.4", "gpt-5", searchTools(true), []string{"search_tools", "read_file"}},
+		// Older model: the referenced deferred tool is sent as an ordinary
+		// function after the others; the search tool is a function.
+		{"model before gpt-5.4", "gpt-5", searchTools(true), []string{"search_tools", "read_file", "get_weather"}},
 		// No tool marked as the search tool: nothing to send as tool_search.
-		{"no search tool", "gpt-5.4", searchTools(false), []string{"search_tools", "read_file"}},
+		{"no search tool", "gpt-5.4", searchTools(false), []string{"search_tools", "read_file", "get_weather"}},
 		// Nothing deferred: plain functions.
 		{"nothing deferred", "gpt-5.4", searchTools(true)[:2], []string{"search_tools", "read_file"}},
 	}

@@ -151,9 +151,11 @@ type ToolDefinition struct {
 	// Deferred sends the tool's definition with the request but keeps it out
 	// of the model's context until a tool result names it in
 	// Message.ToolReferences. A provider that does not support deferred tools
-	// natively for the model in use leaves deferred tools out of the request
-	// altogether, so a host keeping its tool list stable for prompt caching
-	// checks the provider's support first. Never on the wire as is.
+	// natively for the model in use sends a deferred tool, as an ordinary
+	// tool, only once a message in the request's history names it in
+	// ToolReferences, after the other tools in order of first reference; the
+	// rest are left out. A host can therefore send the same full tool list to
+	// every provider. Never on the wire as is.
 	Deferred bool `json:"-"`
 	// ToolSearch marks the host's own tool-search tool: the tool whose results
 	// carry Message.ToolReferences. It is never deferred (Deferred is ignored

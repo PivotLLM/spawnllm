@@ -308,10 +308,11 @@ func buildParams(
 	}
 
 	// Deferred tools: sent with defer_loading on a model that supports them,
-	// left out otherwise (tool references then go as text).
+	// otherwise only those a tool result has referenced are sent, as ordinary
+	// tools (common.RequestTools), and tool references go as text.
 	native := common.AnthropicSupportsDeferredTools(apiModel)
 	if !native {
-		tools = common.LoadedTools(tools)
+		tools = common.RequestTools(tools, messages)
 	}
 	sentTools := make(map[string]bool, len(tools))
 	for _, t := range tools {

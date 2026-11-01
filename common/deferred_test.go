@@ -9,21 +9,76 @@ func tool(name string, deferred bool) ToolDefinition {
 	return ToolDefinition{Type: "function", Function: ToolFunctionDefinition{Name: name}, Deferred: deferred}
 }
 
-func TestLoadedTools(t *testing.T) {
-	none := []ToolDefinition{tool("a", false), tool("b", false)}
-	if got := LoadedTools(none); &got[0] != &none[0] || len(got) != 2 {
-		t.Errorf("no deferred tools: want the input slice unchanged, got %v", got)
+func names(tools []ToolDefinition) []string {
+	out := make([]string, len(tools))
+	for i, t := range tools {
+		out[i] = t.Function.Name
 	}
-	mixed := []ToolDefinition{tool("a", false), tool("b", true), tool("c", false)}
-	got := LoadedTools(mixed)
-	if len(got) != 2 || got[0].Function.Name != "a" || got[1].Function.Name != "c" {
-		t.Errorf("LoadedTools = %v, want a, c", got)
+	return out
+}
+
+func refs(names ...string) Message {
+	return Message{Role: "tool", ToolCallID: "c", ToolReferences: names}
+}
+
+func TestRequestTools(t *testing.T) {
+	tools := []ToolDefinition{tool("a", false), tool("x", true), tool("b", false), tool("y", true), tool("z", true)}
+	tests := []struct {
+		name     string
+		messages []Message
+		want     []string
+	}{
+		{"no references drops every deferred tool", []Message{{Role: "user", Content: "hi"}}, []string{"a", "b"}},
+		{"referenced deferred tool included", []Message{refs("y")}, []string{"a", "b", "y"}},
+		{"order of first reference, not tool order", []Message{refs("z"), refs("x", "z")}, []string{"a", "b", "z", "x"}},
+		{"order within one result", []Message{refs("y", "x")}, []string{"a", "b", "y", "x"}},
+		{"reference to a loaded or unknown tool adds nothing", []Message{refs("a", "nope")}, []string{"a", "b"}},
+		{"references on any message count", []Message{{Role: "assistant", ToolReferences: []string{"x"}}}, []string{"a", "b", "x"}},
 	}
-	if len(mixed) != 3 {
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := RequestTools(tools, tt.messages)
+			if !reflect.DeepEqual(names(got), tt.want) {
+				t.Errorf("RequestTools = %v, want %v", names(got), tt.want)
+			}
+			for _, g := range got {
+				if g.Deferred {
+					t.Errorf("tool %q still Deferred", g.Function.Name)
+				}
+			}
+		})
+	}
+	if !tools[1].Deferred || len(tools) != 5 {
 		t.Error("input slice modified")
 	}
-	if got := LoadedTools(nil); got != nil {
-		t.Errorf("LoadedTools(nil) = %v, want nil", got)
+}
+
+// A conversation's tool list only grows at its end as references are added,
+// so the earlier request's list is a prefix of the later one's.
+func TestRequestTools_StableAcrossRequests(t *testing.T) {
+	tools := []ToolDefinition{tool("a", false), tool("x", true), tool("y", true), tool("b", false)}
+	first := names(RequestTools(tools, []Message{{Role: "user", Content: "hi"}, refs("y")}))
+	second := names(RequestTools(tools, []Message{
+		{Role: "user", Content: "hi"},
+		refs("y"),
+		{Role: "assistant", Content: "ok"},
+		refs("x", "y"),
+	}))
+	if want := []string{"a", "b", "y"}; !reflect.DeepEqual(first, want) {
+		t.Fatalf("first = %v, want %v", first, want)
+	}
+	if want := []string{"a", "b", "y", "x"}; !reflect.DeepEqual(second, want) {
+		t.Fatalf("second = %v, want %v", second, want)
+	}
+}
+
+func TestRequestTools_NothingDeferred(t *testing.T) {
+	none := []ToolDefinition{tool("a", false), tool("b", false)}
+	if got := RequestTools(none, []Message{refs("a")}); &got[0] != &none[0] || len(got) != 2 {
+		t.Errorf("no deferred tools: want the input slice unchanged, got %v", got)
+	}
+	if got := RequestTools(nil, nil); got != nil {
+		t.Errorf("RequestTools(nil) = %v, want nil", got)
 	}
 }
 
@@ -84,11 +139,11 @@ func TestSerializeMessages_ToolReferencesAsText(t *testing.T) {
 	}
 }
 
-func TestLoadedTools_KeepsSearchTool(t *testing.T) {
+func TestRequestTools_KeepsSearchTool(t *testing.T) {
 	search := tool("search_tools", true)
 	search.ToolSearch = true
-	got := LoadedTools([]ToolDefinition{search, tool("b", true)})
+	got := RequestTools([]ToolDefinition{search, tool("b", true)}, nil)
 	if len(got) != 1 || got[0].Function.Name != "search_tools" {
-		t.Errorf("LoadedTools = %v, want the search tool only", got)
+		t.Errorf("RequestTools = %v, want the search tool only", names(got))
 	}
 }

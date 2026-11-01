@@ -9,7 +9,7 @@ import (
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
 
-func TestProviderChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
+func TestProviderChat_ReferencedDeferredToolsSentAndReferencesAsText(t *testing.T) {
 	var body map[string]any
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -21,6 +21,7 @@ func TestProviderChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
 
 	tools := []ToolDefinition{
 		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "search_tools"}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "read_file"}, Deferred: true},
 		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "get_weather"}, Deferred: true},
 	}
 	msgs := []Message{
@@ -31,8 +32,10 @@ func TestProviderChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
 	if _, err := p.Chat(t.Context(), msgs, tools, "dep", nil); err != nil {
 		t.Fatalf("Chat: %v", err)
 	}
-	if sent := list(t, body["tools"]); len(sent) != 1 {
-		t.Errorf("tools = %v, want only search_tools", sent)
+	sent := list(t, body["tools"])
+	if len(sent) != 2 || dig(t, sent, 0, "function", "name") != "search_tools" ||
+		dig(t, sent, 1, "function", "name") != "get_weather" {
+		t.Errorf("tools = %v, want search_tools, get_weather (read_file never referenced)", sent)
 	}
 	if got := dig(t, body, "messages", 1, "content"); got != "Tools found: get_weather" {
 		t.Errorf("tool result content = %v", got)

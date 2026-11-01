@@ -462,10 +462,11 @@ func TestChat_CacheUsageDetails(t *testing.T) {
 	}
 }
 
-func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
+func TestChat_ReferencedDeferredToolsSentAndReferencesAsText(t *testing.T) {
 	p, body := captureServer(t, `{"status":"completed","output":[]}`)
 	tools := []ToolDefinition{
 		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "search_tools"}},
+		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "read_file"}, Deferred: true},
 		{Type: "function", Function: protocoltypes.ToolFunctionDefinition{Name: "get_weather"}, Deferred: true},
 	}
 	msgs := []Message{
@@ -476,9 +477,15 @@ func TestChat_DeferredToolsLeftOutAndReferencesAsText(t *testing.T) {
 	if _, err := p.Chat(context.Background(), msgs, tools, "gpt-5", nil); err != nil {
 		t.Fatalf("Chat error: %v", err)
 	}
+	// read_file was never referenced: left out. get_weather was: an ordinary
+	// function after the loaded tools.
 	sent := asType[[]any](t, (*body)["tools"], "tools")
-	if len(sent) != 1 || asType[map[string]any](t, sent[0], "tools[0]")["name"] != "search_tools" {
-		t.Fatalf("tools = %v, want only search_tools", sent)
+	if len(sent) != 2 || asType[map[string]any](t, sent[0], "tools[0]")["name"] != "search_tools" ||
+		asType[map[string]any](t, sent[1], "tools[1]")["name"] != "get_weather" {
+		t.Fatalf("tools = %v, want search_tools, get_weather", sent)
+	}
+	if _, set := asType[map[string]any](t, sent[1], "tools[1]")["defer_loading"]; set {
+		t.Error("get_weather carries defer_loading")
 	}
 	input := asType[[]any](t, (*body)["input"], "input")
 	out := asType[map[string]any](t, input[len(input)-1], "last input")

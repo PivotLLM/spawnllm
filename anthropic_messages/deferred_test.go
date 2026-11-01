@@ -32,6 +32,17 @@ func deferredTools() []ToolDefinition {
 	}
 }
 
+// withUnreferencedTool returns deferredTools plus read_file, a deferred tool
+// no conversation here references.
+func withUnreferencedTool() []ToolDefinition {
+	readFile := ToolDefinition{
+		Type:     "function",
+		Function: ToolFunctionDefinition{Name: "read_file", Parameters: map[string]any{"type": "object"}},
+		Deferred: true,
+	}
+	return append(deferredTools(), readFile)
+}
+
 func searchConversation(refs []string, content string) []Message {
 	return []Message{
 		{Role: "user", Content: "weather?"},
@@ -78,10 +89,16 @@ func TestBuildRequestBody_ToolReferencesWithText(t *testing.T) {
 }
 
 func TestBuildRequestBody_DeferredToolsUnsupportedModel(t *testing.T) {
-	body := requestJSON(t, searchConversation([]string{"get_weather"}, ""), deferredTools(), "claude-3-7-sonnet-20250219")
-	tools := list(t, body["tools"])
-	if len(tools) != 1 || dig(t, tools, 0, "name") != "search_tools" {
-		t.Fatalf("tools = %v, want only search_tools", tools)
+	// read_file is deferred and never referenced: left out. get_weather was
+	// referenced: sent after the loaded tools without defer_loading.
+	tools := withUnreferencedTool()
+	body := requestJSON(t, searchConversation([]string{"get_weather"}, ""), tools, "claude-3-7-sonnet-20250219")
+	sent := list(t, body["tools"])
+	if len(sent) != 2 || dig(t, sent, 0, "name") != "search_tools" || dig(t, sent, 1, "name") != "get_weather" {
+		t.Fatalf("tools = %v, want search_tools, get_weather", sent)
+	}
+	if dig(t, sent, 1, "defer_loading") != nil {
+		t.Error("get_weather must not carry defer_loading")
 	}
 	if got := toolResultContent(t, body); got != "Tools found: get_weather" {
 		t.Errorf("tool_result content = %v, want the references as text", got)
@@ -147,5 +164,19 @@ func TestBuildRequestBody_SearchToolNeverDeferred(t *testing.T) {
 	}
 	if dig(t, body, "tools", 1, "defer_loading") != true {
 		t.Error("get_weather must stay deferred")
+	}
+}
+
+// On a native model every deferred tool is sent, referenced or not, in the
+// caller's order and with defer_loading: the history does not change the list.
+func TestBuildRequestBody_NativeSendsUnreferencedDeferredTools(t *testing.T) {
+	tools := withUnreferencedTool()
+	body := requestJSON(t, searchConversation([]string{"get_weather"}, ""), tools, "claude-sonnet-4-6")
+	sent := list(t, body["tools"])
+	if len(sent) != 3 || dig(t, sent, 1, "name") != "get_weather" || dig(t, sent, 2, "name") != "read_file" {
+		t.Fatalf("tools = %v, want search_tools, get_weather, read_file", sent)
+	}
+	if dig(t, sent, 1, "defer_loading") != true || dig(t, sent, 2, "defer_loading") != true {
+		t.Error("deferred tools must carry defer_loading on a native model")
 	}
 }
