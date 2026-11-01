@@ -151,6 +151,29 @@ func SerializeMessages(messages []Message) []any {
 
 // --- Response parsing ---
 
+// ParseOption adjusts how ParseResponse (and the helpers that call it) reads a
+// chat completion response.
+type ParseOption func(*parseOptions)
+
+type parseOptions struct {
+	usageCost bool
+}
+
+// WithUsageCost makes the parser set DispatchStatus.CostUSD from the response's
+// usage.cost. Only a caller that knows the endpoint reports that field in US
+// dollars (OpenRouter) passes it; the field is ignored otherwise.
+func WithUsageCost() ParseOption {
+	return func(o *parseOptions) { o.usageCost = true }
+}
+
+func applyParseOptions(opts []ParseOption) parseOptions {
+	var o parseOptions
+	for _, opt := range opts {
+		opt(&o)
+	}
+	return o
+}
+
 // ParseResponse parses a JSON chat completion response body into an LLMResponse.
 // The returned LLMResponse carries a partial DispatchStatus (Success and DurationMs
 // are intentionally left for the caller, which knows the HTTP outcome and wall-clock).
@@ -159,7 +182,8 @@ func SerializeMessages(messages []Message) []any {
 // cross-check candidate tool calls recovered from non-standard response shapes
 // (notably content-embedded JSON descriptors emitted by some upstream routes).
 // A nil or empty set disables the content-sniff promotion.
-func ParseResponse(body io.Reader, toolNames map[string]struct{}) (*LLMResponse, error) {
+func ParseResponse(body io.Reader, toolNames map[string]struct{}, opts ...ParseOption) (*LLMResponse, error) {
+	o := applyParseOptions(opts)
 	var apiResponse struct {
 		Model   string `json:"model"`
 		Choices []struct {
@@ -200,6 +224,9 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}) (*LLMResponse,
 				CachedTokens     int `json:"cached_tokens"`
 				CacheWriteTokens int `json:"cache_write_tokens"`
 			} `json:"prompt_tokens_details"`
+			// Cost is OpenRouter's charge for the request, in credits (US
+			// dollars); nil when the response has none.
+			Cost *float64 `json:"cost"`
 		} `json:"usage"`
 	}
 
@@ -336,6 +363,10 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}) (*LLMResponse,
 		if apiResponse.Usage.PromptTokensDetails != nil {
 			status.CacheReadTokens = apiResponse.Usage.PromptTokensDetails.CachedTokens
 			status.CacheCreationTokens = apiResponse.Usage.PromptTokensDetails.CacheWriteTokens
+		}
+		if o.usageCost && apiResponse.Usage.Cost != nil {
+			cost := *apiResponse.Usage.Cost
+			status.CostUSD = &cost
 		}
 	}
 
@@ -567,8 +598,8 @@ func ParseRetryAfter(raw string, now time.Time) time.Duration {
 // ReadAndParseResponse peeks at the response body to detect HTML errors,
 // then parses the JSON response into an LLMResponse. toolNames is forwarded
 // to ParseResponse for the content-sniff cross-check.
-func ReadAndParseResponse(resp *http.Response, apiBase string, toolNames map[string]struct{}) (*LLMResponse, error) {
-	out, _, err := ReadParseAndMeasure(resp, apiBase, toolNames)
+func ReadAndParseResponse(resp *http.Response, apiBase string, toolNames map[string]struct{}, opts ...ParseOption) (*LLMResponse, error) {
+	out, _, err := ReadParseAndMeasure(resp, apiBase, toolNames, opts...)
 	return out, err
 }
 
@@ -600,7 +631,7 @@ func SanitizeModelContent(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func ReadParseAndMeasure(resp *http.Response, apiBase string, toolNames map[string]struct{}) (*LLMResponse, int64, error) {
+func ReadParseAndMeasure(resp *http.Response, apiBase string, toolNames map[string]struct{}, opts ...ParseOption) (*LLMResponse, int64, error) {
 	contentType := resp.Header.Get("Content-Type")
 	counter := &readCounter{r: resp.Body}
 	reader := bufio.NewReader(counter)
@@ -611,7 +642,7 @@ func ReadParseAndMeasure(resp *http.Response, apiBase string, toolNames map[stri
 	if LooksLikeHTML(prefix, contentType) {
 		return nil, counter.n, WrapHTMLResponseError(resp.StatusCode, prefix, contentType, apiBase)
 	}
-	out, err := ParseResponse(reader, toolNames)
+	out, err := ParseResponse(reader, toolNames, opts...)
 	if err != nil {
 		return nil, counter.n, fmt.Errorf("failed to parse JSON response: %w", err)
 	}

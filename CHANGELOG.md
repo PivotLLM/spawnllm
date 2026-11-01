@@ -58,15 +58,21 @@ All notable changes to spawnllm are recorded here. The format follows
   request and appends the references to the tool result as text
   ("Tools found: a, b"), so a history that carries them still works after a
   fallback to another provider.
+- OpenRouter (`openai-chat` against `openrouter.ai`): `DispatchStatus.CostUSD`
+  is set from the response's `usage.cost` (OpenRouter credits, which are US
+  dollars), streaming or not; a reported 0 is kept as $0.00 and a response
+  without the field leaves it nil. `usage.cost` from any other host is
+  ignored.
 
 ### Changed
 
 - **BREAKING** `DispatchStatus.CostUSD` is now `*float64` (JSON `cost_usd`
   is `null` when unset). nil means the provider returned no cost; a non-nil
   value is the cost it reported, $0.00 included. Only the Claude CLI provider
-  reports one (`total_cost_usd`); every HTTP provider (`anthropic`,
-  `anthropic-messages`, `openai-chat`, `openai-responses`, `azure`) and the
-  other CLIs leave it nil, where they used to report 0. Migration: callers
+  (`total_cost_usd`) and `openai-chat` against OpenRouter (`usage.cost`)
+  report one; every other HTTP provider (`anthropic`, `anthropic-messages`,
+  `openai-chat` elsewhere, `openai-responses`, `azure`) and the other CLIs
+  leave it nil, where they used to report 0. Migration: callers
   reading `CostUSD` directly test for nil before dereferencing it (for
   example print `cost=unknown` for nil) and add nothing to a running total
   for nil.

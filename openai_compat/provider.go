@@ -457,7 +457,7 @@ func (p *Provider) Chat(
 		return p.readStream(resp, streamCB, tools, model, corrID, bytesSent, start)
 	}
 
-	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools))
+	out, bytesReceived, err := common.ReadParseAndMeasure(resp, p.apiBase, common.ToolNameSet(tools), p.parseOptions()...)
 	durationMs := time.Since(start).Milliseconds()
 	if err != nil {
 		return httpErrorStatus(model, "parse_error", durationMs, bytesSent, bytesReceived), err
@@ -489,7 +489,7 @@ func (p *Provider) readStream(
 	start time.Time,
 ) (*LLMResponse, error) {
 	counter := &countingReader{r: resp.Body}
-	out, body, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools))
+	out, body, err := common.AccumulateChatStream(counter, cb, common.ToolNameSet(tools), p.parseOptions()...)
 	durationMs := time.Since(start).Milliseconds()
 
 	if p.responseLogFile != "" && len(body) > 0 {
@@ -518,6 +518,16 @@ func (p *Provider) readStream(
 		}
 	}
 	return out, nil
+}
+
+// parseOptions returns the response-parsing options for this endpoint. Only
+// OpenRouter's usage.cost is known to be in US dollars (credits, 1 credit =
+// $1), so the cost is read from no other host.
+func (p *Provider) parseOptions() []common.ParseOption {
+	if isOpenRouterHost(p.apiBase) {
+		return []common.ParseOption{common.WithUsageCost()}
+	}
+	return nil
 }
 
 // countingReader tracks bytes read so streaming can report BytesReceived.

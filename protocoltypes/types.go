@@ -61,8 +61,9 @@ type DispatchStatus struct {
 	CacheCreationTokens int    `json:"cache_creation_tokens"`
 	StopReason          string `json:"stop_reason"`
 	// CostUSD is the request's cost as the provider reported it; nil when the
-	// provider returned no cost (every HTTP provider today), which is not the
-	// same as a reported $0.00.
+	// provider returned no cost, which is not the same as a reported $0.00.
+	// Set by the Claude CLI (total_cost_usd) and by OpenAI-compatible requests
+	// to OpenRouter (usage.cost, in credits: US dollars).
 	CostUSD       *float64 `json:"cost_usd"`
 	DurationMs    int64    `json:"duration_ms"`
 	BytesSent     int64    `json:"bytes_sent"`

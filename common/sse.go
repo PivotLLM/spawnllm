@@ -134,7 +134,7 @@ func (e *StreamChatError) Error() string { return e.Message }
 // An in-band error chunk aborts accumulation and returns *StreamChatError.
 // The reconstructed body bytes are returned (best-effort, possibly partial) so
 // callers can log what was assembled.
-func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]struct{}) (*LLMResponse, []byte, error) {
+func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]struct{}, opts ...ParseOption) (*LLMResponse, []byte, error) {
 	sr := NewSSEReader(r)
 
 	var (
@@ -220,7 +220,7 @@ func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]st
 	body := reconstructChatBody(model, content.String(), reasoningC.String(),
 		reasoning.String(), finishReason, usageRaw, toolOrder, toolByIndex)
 
-	out, err := ParseResponse(strings.NewReader(string(body)), toolNames)
+	out, err := ParseResponse(strings.NewReader(string(body)), toolNames, opts...)
 	if err != nil {
 		return nil, body, fmt.Errorf("failed to parse reconstructed stream body: %w", err)
 	}
