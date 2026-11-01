@@ -190,11 +190,14 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}) (*LLMResponse,
 			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage *struct {
-			PromptTokens        int `json:"prompt_tokens"`
-			CompletionTokens    int `json:"completion_tokens"`
-			TotalTokens         int `json:"total_tokens"`
+			PromptTokens     int `json:"prompt_tokens"`
+			CompletionTokens int `json:"completion_tokens"`
+			TotalTokens      int `json:"total_tokens"`
+			// prompt_tokens includes the cached and cache-written tokens (OpenAI
+			// semantics, which OpenRouter follows), so these are not added to it.
 			PromptTokensDetails *struct {
-				CachedTokens int `json:"cached_tokens"`
+				CachedTokens     int `json:"cached_tokens"`
+				CacheWriteTokens int `json:"cache_write_tokens"`
 			} `json:"prompt_tokens_details"`
 		} `json:"usage"`
 	}
@@ -331,6 +334,7 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}) (*LLMResponse,
 		status.OutputTokens = apiResponse.Usage.CompletionTokens
 		if apiResponse.Usage.PromptTokensDetails != nil {
 			status.CacheReadTokens = apiResponse.Usage.PromptTokensDetails.CachedTokens
+			status.CacheCreationTokens = apiResponse.Usage.PromptTokensDetails.CacheWriteTokens
 		}
 	}
 

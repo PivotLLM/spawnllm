@@ -531,9 +531,14 @@ type responseEnvelope struct {
 		Reason string `json:"reason"`
 	} `json:"incomplete_details"`
 	Usage *struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
-		TotalTokens  int `json:"total_tokens"`
+		// input_tokens includes the cached and cache-written tokens.
+		InputTokens        int `json:"input_tokens"`
+		OutputTokens       int `json:"output_tokens"`
+		TotalTokens        int `json:"total_tokens"`
+		InputTokensDetails *struct {
+			CachedTokens     int `json:"cached_tokens"`
+			CacheWriteTokens int `json:"cache_write_tokens"`
+		} `json:"input_tokens_details"`
 	} `json:"usage"`
 }
 
@@ -634,6 +639,10 @@ func parseResponse(raw []byte, model string) (*LLMResponse, error) {
 		}
 		out.Status.InputTokens = env.Usage.InputTokens
 		out.Status.OutputTokens = env.Usage.OutputTokens
+		if d := env.Usage.InputTokensDetails; d != nil {
+			out.Status.CacheReadTokens = d.CachedTokens
+			out.Status.CacheCreationTokens = d.CacheWriteTokens
+		}
 	}
 	return out, nil
 }

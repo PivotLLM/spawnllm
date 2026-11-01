@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 
@@ -315,6 +316,20 @@ func (p *Provider) Chat(
 		if supportsPromptCacheKey(p.apiBase) {
 			requestBody["prompt_cache_key"] = cacheKey
 		}
+		// OpenRouter keeps a conversation on the same upstream (and so on that
+		// upstream's prompt cache) when the request names a session_id; the
+		// caller's cache key is exactly that per-conversation identity.
+		if isOpenRouterHost(p.apiBase) {
+			requestBody["session_id"] = truncateUTF8(cacheKey, openRouterSessionIDMax)
+		}
+	}
+
+	// Claude models reached through OpenRouter cache only with cache_control;
+	// the top-level field turns on automatic caching (a breakpoint on the last
+	// cacheable block), as it does on the Anthropic API itself. Other models
+	// cache automatically and do not take the field.
+	if isOpenRouterHost(p.apiBase) && isOpenRouterClaudeModel(model) {
+		requestBody["cache_control"] = map[string]any{"type": "ephemeral"}
 	}
 
 	if p.reasoningEffort != "" {
@@ -903,4 +918,41 @@ func supportsPromptCacheKey(apiBase string) bool {
 	}
 	host := u.Hostname()
 	return host == "api.openai.com" || strings.HasSuffix(host, ".openai.azure.com")
+}
+
+// openRouterSessionIDMax is the longest session_id OpenRouter accepts.
+const openRouterSessionIDMax = 256
+
+// isOpenRouterHost reports whether apiBase's host is openrouter.ai (or a
+// subdomain of it). Unlike isOpenRouterBase it ignores the path, so a proxy
+// whose path merely mentions openrouter.ai does not match.
+func isOpenRouterHost(apiBase string) bool {
+	u, err := url.Parse(apiBase)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(u.Hostname())
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
+}
+
+// isOpenRouterClaudeModel reports whether an OpenRouter model id names an
+// Anthropic model. OpenRouter namespaces every model by its author, and all of
+// Anthropic's are "anthropic/<id>" (with optional ":variant" suffixes); a
+// leading "~" marks OpenRouter's moving aliases ("~anthropic/claude-...").
+func isOpenRouterClaudeModel(model string) bool {
+	m := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(model)), "~")
+	return strings.HasPrefix(m, "anthropic/")
+}
+
+// truncateUTF8 returns s cut to at most maxBytes bytes without splitting a
+// UTF-8 sequence.
+func truncateUTF8(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	cut := maxBytes
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut]
 }

@@ -419,3 +419,32 @@ func TestChat_ToolHistoryReplay_DirectNameAndArguments(t *testing.T) {
 		})
 	}
 }
+
+func TestChat_CacheUsageDetails(t *testing.T) {
+	reply := `{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}]}],` +
+		`"usage":{"input_tokens":1000,"output_tokens":5,"total_tokens":1005,` +
+		`"input_tokens_details":{"cached_tokens":700,"cache_write_tokens":200}}}`
+	p, _ := captureServer(t, reply)
+	out, err := p.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5.6", nil)
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if out.Status.CacheReadTokens != 700 || out.Status.CacheCreationTokens != 200 {
+		t.Errorf("cache read/creation = %d/%d, want 700/200",
+			out.Status.CacheReadTokens, out.Status.CacheCreationTokens)
+	}
+	// input_tokens already includes the cached and written tokens.
+	if out.Usage.PromptTokens != 1000 {
+		t.Errorf("PromptTokens = %d, want 1000", out.Usage.PromptTokens)
+	}
+
+	p2, _ := captureServer(t, `{"status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}`)
+	out2, err := p2.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5.6", nil)
+	if err != nil {
+		t.Fatalf("Chat error: %v", err)
+	}
+	if out2.Status.CacheReadTokens != 0 || out2.Status.CacheCreationTokens != 0 {
+		t.Errorf("no details: cache read/creation = %d/%d, want 0/0",
+			out2.Status.CacheReadTokens, out2.Status.CacheCreationTokens)
+	}
+}
