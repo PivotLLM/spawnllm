@@ -76,11 +76,31 @@ All notable changes to spawnllm are recorded here. The format follows
   reading `CostUSD` directly test for nil before dereferencing it (for
   example print `cost=unknown` for nil) and add nothing to a running total
   for nil.
+- **BREAKING** `DispatchStatus.InputTokens` now means the same on every
+  provider: the input tokens neither read from nor written to the prompt
+  cache, so `InputTokens + CacheReadTokens + CacheCreationTokens` is the whole
+  prompt (`Usage.PromptTokens`). The Anthropic providers and the Claude,
+  Cursor and Antigravity CLIs already reported it this way. `openai-chat`,
+  `openai-responses`, `azure` and the Codex CLI reported the whole prompt,
+  cached tokens included, so a host adding the three counted cached tokens
+  twice; they now report the prompt less `cached_tokens` and
+  `cache_write_tokens` (never below 0). Migration: a caller that read
+  `InputTokens` from those providers as the whole prompt uses
+  `Usage.PromptTokens`, or adds `CacheReadTokens` and `CacheCreationTokens`.
+- Cursor CLI: `DispatchStatus.CacheCreationTokens` is now filled from
+  `cacheWriteTokens`; it was always 0.
+
 - Anthropic: `Usage.PromptTokens` (and so `TotalTokens`) now counts every
   input token, `input_tokens` plus cache reads and cache writes, as the CLI
   providers and the OpenAI-shaped providers already do. With caching on,
   `input_tokens` alone covers only what follows the last cache breakpoint.
   `DispatchStatus` keeps the three counts separate (`InputTokens`,
   `CacheReadTokens`, `CacheCreationTokens`).
+
+### Fixed
+
+- Codex CLI: `Usage.PromptTokens` (and `TotalTokens`) no longer counts
+  cached tokens twice. Codex's `input_tokens` already includes
+  `cached_input_tokens`, which was added to it again.
 
 [0.1.20]: https://github.com/PivotLLM/spawnllm/compare/v0.1.19...HEAD

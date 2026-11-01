@@ -151,6 +151,14 @@ func SerializeMessages(messages []Message) []any {
 
 // --- Response parsing ---
 
+// UncachedInputTokens returns the input tokens neither read from nor written to
+// the cache, the meaning of DispatchStatus.InputTokens, from a prompt total
+// that includes both (OpenAI's prompt_tokens / input_tokens). It is never
+// below 0.
+func UncachedInputTokens(total, cacheRead, cacheWrite int) int {
+	return max(total-cacheRead-cacheWrite, 0)
+}
+
 // ParseOption adjusts how ParseResponse (and the helpers that call it) reads a
 // chat completion response.
 type ParseOption func(*parseOptions)
@@ -358,12 +366,13 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}, opts ...ParseO
 			CompletionTokens: apiResponse.Usage.CompletionTokens,
 			TotalTokens:      apiResponse.Usage.TotalTokens,
 		}
-		status.InputTokens = apiResponse.Usage.PromptTokens
 		status.OutputTokens = apiResponse.Usage.CompletionTokens
 		if apiResponse.Usage.PromptTokensDetails != nil {
 			status.CacheReadTokens = apiResponse.Usage.PromptTokensDetails.CachedTokens
 			status.CacheCreationTokens = apiResponse.Usage.PromptTokensDetails.CacheWriteTokens
 		}
+		status.InputTokens = UncachedInputTokens(apiResponse.Usage.PromptTokens,
+			status.CacheReadTokens, status.CacheCreationTokens)
 		if o.usageCost && apiResponse.Usage.Cost != nil {
 			cost := *apiResponse.Usage.Cost
 			status.CostUSD = &cost

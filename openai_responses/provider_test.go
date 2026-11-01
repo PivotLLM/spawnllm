@@ -440,6 +440,13 @@ func TestChat_CacheUsageDetails(t *testing.T) {
 	if out.Usage.PromptTokens != 1000 {
 		t.Errorf("PromptTokens = %d, want 1000", out.Usage.PromptTokens)
 	}
+	// InputTokens is only the uncached part; the three add up to the prompt.
+	if out.Status.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (1000 less 700 read, 200 written)", out.Status.InputTokens)
+	}
+	if sum := out.Status.InputTokens + out.Status.CacheReadTokens + out.Status.CacheCreationTokens; sum != out.Usage.PromptTokens {
+		t.Errorf("input+read+write = %d, want PromptTokens %d", sum, out.Usage.PromptTokens)
+	}
 
 	p2, _ := captureServer(t, `{"status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}`)
 	out2, err := p2.Chat(context.Background(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-5.6", nil)
@@ -449,6 +456,9 @@ func TestChat_CacheUsageDetails(t *testing.T) {
 	if out2.Status.CacheReadTokens != 0 || out2.Status.CacheCreationTokens != 0 {
 		t.Errorf("no details: cache read/creation = %d/%d, want 0/0",
 			out2.Status.CacheReadTokens, out2.Status.CacheCreationTokens)
+	}
+	if out2.Status.InputTokens != 3 {
+		t.Errorf("no details: InputTokens = %d, want 3", out2.Status.InputTokens)
 	}
 }
 

@@ -703,12 +703,13 @@ func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 			CompletionTokens: env.Usage.OutputTokens,
 			TotalTokens:      env.Usage.TotalTokens,
 		}
-		out.Status.InputTokens = env.Usage.InputTokens
 		out.Status.OutputTokens = env.Usage.OutputTokens
 		if d := env.Usage.InputTokensDetails; d != nil {
 			out.Status.CacheReadTokens = d.CachedTokens
 			out.Status.CacheCreationTokens = d.CacheWriteTokens
 		}
+		out.Status.InputTokens = common.UncachedInputTokens(env.Usage.InputTokens,
+			out.Status.CacheReadTokens, out.Status.CacheCreationTokens)
 	}
 	return out, nil
 }

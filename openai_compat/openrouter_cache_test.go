@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+
+	"github.com/PivotLLM/spawnllm/common"
 )
 
 // chatVia sends one Chat request to apiBase (rerouted to a local test server)
@@ -148,11 +150,43 @@ func TestChat_CacheWriteTokensParsed(t *testing.T) {
 	if out.Usage.PromptTokens != 1000 || out.Usage.TotalTokens != 1010 {
 		t.Errorf("usage = %+v, want prompt 1000 total 1010", out.Usage)
 	}
+	// InputTokens is only the uncached part; the three add up to the prompt.
+	if out.Status.InputTokens != 100 {
+		t.Errorf("InputTokens = %d, want 100 (1000 less 600 read, 300 written)", out.Status.InputTokens)
+	}
+	if sum := out.Status.InputTokens + out.Status.CacheReadTokens + out.Status.CacheCreationTokens; sum != out.Usage.PromptTokens {
+		t.Errorf("input+read+write = %d, want PromptTokens %d", sum, out.Usage.PromptTokens)
+	}
 
 	_, plain := chatVia(t, "https://openrouter.ai/api/v1", "openai/gpt-5.2", nil,
 		`{"choices":[{"message":{"content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1,"total_tokens":6}}`)
 	if plain.Status.CacheReadTokens != 0 || plain.Status.CacheCreationTokens != 0 {
 		t.Errorf("no details: cache read/creation = %d/%d, want 0/0",
 			plain.Status.CacheReadTokens, plain.Status.CacheCreationTokens)
+	}
+	if plain.Status.InputTokens != 5 {
+		t.Errorf("no details: InputTokens = %d, want 5", plain.Status.InputTokens)
+	}
+}
+
+func TestChat_InputTokensExcludeCacheStreaming(t *testing.T) {
+	body := "data: " + `{"model":"m","choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}` + "\n\n" +
+		"data: " + `{"model":"m","choices":[],"usage":{"prompt_tokens":1000,"completion_tokens":1,"total_tokens":1001,` +
+		`"prompt_tokens_details":{"cached_tokens":600,"cache_write_tokens":300}}}` + "\n\n" +
+		"data: [DONE]\n\n"
+	server := sseServer(t, body, nil)
+	defer server.Close()
+	p := NewProvider("key", server.URL, "")
+	out, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "m",
+		map[string]any{common.TextDeltaOption: func(string) {}})
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	s := out.Status
+	if s.InputTokens != 100 || s.CacheReadTokens != 600 || s.CacheCreationTokens != 300 {
+		t.Errorf("input/read/write = %d/%d/%d, want 100/600/300", s.InputTokens, s.CacheReadTokens, s.CacheCreationTokens)
+	}
+	if sum := s.InputTokens + s.CacheReadTokens + s.CacheCreationTokens; sum != out.Usage.PromptTokens {
+		t.Errorf("input+read+write = %d, want PromptTokens %d", sum, out.Usage.PromptTokens)
 	}
 }

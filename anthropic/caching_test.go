@@ -199,4 +199,7 @@ func TestParseResponse_CacheTokens(t *testing.T) {
 	if got.Usage.TotalTokens != 92015 {
 		t.Errorf("Usage.TotalTokens = %d, want 92015", got.Usage.TotalTokens)
 	}
+	if sum := got.Status.InputTokens + got.Status.CacheReadTokens + got.Status.CacheCreationTokens; sum != got.Usage.PromptTokens {
+		t.Errorf("input+read+write = %d, want PromptTokens %d", sum, got.Usage.PromptTokens)
+	}
 }

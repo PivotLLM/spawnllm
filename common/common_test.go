@@ -959,3 +959,23 @@ func TestParseResponse_WithThoughtSignature(t *testing.T) {
 			out.ToolCalls[0].ExtraContent.Google.ThoughtSignature, "sig123")
 	}
 }
+
+func TestUncachedInputTokens(t *testing.T) {
+	tests := []struct {
+		name                     string
+		total, read, write, want int
+	}{
+		{"no cache", 100, 0, 0, 100},
+		{"read only", 100, 60, 0, 40},
+		{"read and write", 1000, 600, 300, 100},
+		{"all cached", 100, 100, 0, 0},
+		{"inconsistent report floors at zero", 10, 20, 5, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := UncachedInputTokens(tt.total, tt.read, tt.write); got != tt.want {
+				t.Errorf("UncachedInputTokens(%d, %d, %d) = %d, want %d", tt.total, tt.read, tt.write, got, tt.want)
+			}
+		})
+	}
+}

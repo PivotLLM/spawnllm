@@ -1204,8 +1204,8 @@ func TestProviderChat_PopulatesDispatchStatus(t *testing.T) {
 	if out.Status.Model != "gpt-4o-2024-11-20" {
 		t.Fatalf("Model = %q, want %q", out.Status.Model, "gpt-4o-2024-11-20")
 	}
-	if out.Status.InputTokens != 12 || out.Status.OutputTokens != 4 {
-		t.Fatalf("tokens = (%d,%d), want (12,4)", out.Status.InputTokens, out.Status.OutputTokens)
+	if out.Status.InputTokens != 4 || out.Status.OutputTokens != 4 {
+		t.Fatalf("tokens = (%d,%d), want (4,4): 12 prompt less 8 cached", out.Status.InputTokens, out.Status.OutputTokens)
 	}
 	if out.Status.CacheReadTokens != 8 {
 		t.Fatalf("CacheReadTokens = %d, want 8", out.Status.CacheReadTokens)

@@ -284,11 +284,13 @@ func (p *CodexCliProvider) parseJSONLEvents(output, model string, durationMs int
 			turnCompletedCount++
 			if event.Usage != nil {
 				finalUsage = event.Usage
-				promptTokens := event.Usage.InputTokens + event.Usage.CachedInputTokens
+				// input_tokens is the whole prompt; cached_input_tokens is the
+				// part of it read from cache (Codex's non-cached input is the
+				// difference), so the two are not added.
 				usage = &UsageInfo{
-					PromptTokens:     promptTokens,
+					PromptTokens:     event.Usage.InputTokens,
 					CompletionTokens: event.Usage.OutputTokens,
-					TotalTokens:      promptTokens + event.Usage.OutputTokens,
+					TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
 				}
 			}
 		case "error":
@@ -367,7 +369,7 @@ func buildCodexCliStatus(model string, usage *codexUsage, numTurns int, lastErro
 		DurationMs: durationMs,
 	}
 	if usage != nil {
-		status.InputTokens = usage.InputTokens
+		status.InputTokens = common.UncachedInputTokens(usage.InputTokens, usage.CachedInputTokens, 0)
 		status.OutputTokens = usage.OutputTokens
 		status.CacheReadTokens = usage.CachedInputTokens
 	}

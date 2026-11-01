@@ -206,13 +206,14 @@ func buildCursorCliStatus(resp *cursorCliJSONResponse) *DispatchStatus {
 		stopReason = "error"
 	}
 	return &DispatchStatus{
-		Success:         !resp.IsError,
-		Model:           resp.Model,
-		InputTokens:     resp.Usage.InputTokens,
-		OutputTokens:    resp.Usage.OutputTokens,
-		CacheReadTokens: resp.Usage.CacheReadTokens,
-		StopReason:      stopReason,
-		DurationMs:      int64(resp.DurationMS),
+		Success:             !resp.IsError,
+		Model:               resp.Model,
+		InputTokens:         resp.Usage.InputTokens,
+		OutputTokens:        resp.Usage.OutputTokens,
+		CacheReadTokens:     resp.Usage.CacheReadTokens,
+		CacheCreationTokens: resp.Usage.CacheWriteTokens,
+		StopReason:          stopReason,
+		DurationMs:          int64(resp.DurationMS),
 	}
 }
 

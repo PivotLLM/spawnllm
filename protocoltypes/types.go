@@ -52,9 +52,13 @@ type LLMResponse struct {
 // (success or error) and surfaced in the LLMResponse so the agent loop
 // can write a uniform finish event.
 type DispatchStatus struct {
-	Success             bool   `json:"success"`
-	Model               string `json:"model"`
-	NumTurns            int    `json:"num_turns"`
+	Success  bool   `json:"success"`
+	Model    string `json:"model"`
+	NumTurns int    `json:"num_turns"`
+	// InputTokens counts the input tokens neither read from nor written to
+	// the prompt cache, on every provider (Anthropic's meaning of
+	// input_tokens). InputTokens + CacheReadTokens + CacheCreationTokens is
+	// the whole prompt, which UsageInfo.PromptTokens reports.
 	InputTokens         int    `json:"input_tokens"`
 	OutputTokens        int    `json:"output_tokens"`
 	CacheReadTokens     int    `json:"cache_read_tokens"`
