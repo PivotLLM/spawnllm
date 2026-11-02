@@ -76,15 +76,22 @@ func TestBuildRequestBody_DeferredToolsNative(t *testing.T) {
 	}
 }
 
+// A stored search result with both text and references: the tool_result holds
+// only the tool_reference blocks (the API rejects a tool_result that mixes
+// them with other content) and the text follows as its own block.
 func TestBuildRequestBody_ToolReferencesWithText(t *testing.T) {
 	body := requestJSON(t, searchConversation([]string{"get_weather", "gone"}, "2 matches"), deferredTools(), "claude-opus-5-5")
-	want := []any{
-		// A reference to a tool not in the request is named in the text.
-		map[string]any{"type": "text", "text": "2 matches\n\nTools found: gone"},
-		map[string]any{"type": "tool_reference", "tool_name": "get_weather"},
+	wantResult := []any{map[string]any{"type": "tool_reference", "tool_name": "get_weather"}}
+	if got := toolResultContent(t, body); !reflect.DeepEqual(got, wantResult) {
+		t.Errorf("tool_result content = %v, want %v", got, wantResult)
 	}
-	if got := toolResultContent(t, body); !reflect.DeepEqual(got, want) {
-		t.Errorf("tool_result content = %v, want %v", got, want)
+	// A reference to a tool not in the request is named in the text.
+	wantText := map[string]any{"type": "text", "text": "2 matches\n\nTools found: gone"}
+	if got := dig(t, body, "messages", -1, "content", 1); !reflect.DeepEqual(got, wantText) {
+		t.Errorf("block after tool_result = %v, want %v", got, wantText)
+	}
+	if got := len(list(t, dig(t, body, "messages", -1, "content"))); got != 2 {
+		t.Errorf("user message has %d blocks, want 2", got)
 	}
 }
 

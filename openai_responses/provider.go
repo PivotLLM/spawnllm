@@ -426,7 +426,10 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // hoisted `instructions` string (system/developer turns). Assistant tool calls
 // become function_call items; tool results become function_call_output items.
 // With search set, calls to the tool-search tool and their results become
-// tool_search_call and tool_search_output items instead.
+// tool_search_call and tool_search_output items instead (the result's text
+// following as a developer message), a call to a deferred
+// tool carries its namespace, and the result of any other tool that references
+// deferred tools is followed by an additional_tools item that loads them.
 func buildInput(messages []Message, search *toolSearch) (instructions string, input []any) {
 	var sys strings.Builder
 	input = make([]any, 0, len(messages))
@@ -441,14 +444,21 @@ func buildInput(messages []Message, search *toolSearch) (instructions string, in
 			}
 		case "tool":
 			if search.isCall(m.ToolCallID) {
-				input = append(input, search.outputItem(m))
+				input = append(input, search.outputItems(m)...)
 				continue
+			}
+			var additional map[string]any
+			if search != nil {
+				additional = search.additionalToolsItem(&m)
 			}
 			input = append(input, map[string]any{
 				"type":    "function_call_output",
 				"call_id": m.ToolCallID,
 				"output":  functionCallOutput(m),
 			})
+			if additional != nil {
+				input = append(input, additional)
+			}
 		case "assistant":
 			// Replay this turn's reasoning items first (verbatim, incl.
 			// encrypted_content): the API requires the reasoning item to precede
@@ -469,12 +479,16 @@ func buildInput(messages []Message, search *toolSearch) (instructions string, in
 					input = append(input, search.callItem(tc))
 					continue
 				}
-				input = append(input, map[string]any{
+				item := map[string]any{
 					"type":      "function_call",
 					"call_id":   tc.ID,
 					"name":      common.ToolCallName(tc),
 					"arguments": common.ToolCallArgumentsJSON(tc),
-				})
+				}
+				if ns := search.namespace(common.ToolCallName(tc)); ns != "" {
+					item["namespace"] = ns
+				}
+				input = append(input, item)
 			}
 		default: // user (and any other) → user input message
 			input = append(input, userInputMessage(m))

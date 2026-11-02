@@ -4,6 +4,40 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.21]
+
+### Fixed
+
+- Anthropic (`anthropic-messages`): a tool result with both text and native
+  tool references was sent as a `tool_result` holding a text block and
+  `tool_reference` blocks together, which the API rejects with HTTP 400
+  ("Tool definitions/code execution functions cannot be mixed with other
+  content"), so every conversation whose history held a search result failed
+  on Claude 4.5 and later, including history written while the agent ran on
+  another provider. The `tool_result` now holds only the `tool_reference`
+  blocks and the result's text follows as a separate text block in the same
+  user message. A result without native references keeps the plain string
+  content.
+- OpenAI Responses (`openai-responses`) with client tool search (gpt-5.4 and
+  later): a result from a tool other than the search tool that referenced
+  deferred tools (for example a tool showing another tool's details) left them
+  deferred, so the model could not call them, since only a `tool_search_output`
+  loads a deferred tool. Such a result's `function_call_output` is now followed
+  by an `additional_tools` item holding the referenced deferred tools that no
+  earlier item loaded. A reference to a tool not in the request is still named
+  in the result's text.
+- OpenAI Responses (`openai-responses`) with client tool search: a replayed
+  call to a deferred tool was sent without the `namespace` field the model's
+  `function_call` carries (the tool's own name), and the API rejected the
+  request ("Missing namespace for function_call"), so the turn after any call
+  to a search-loaded tool failed. The replayed call now carries the namespace.
+- OpenAI Responses (`openai-responses`) with client tool search: a search
+  result's text was dropped, since `tool_search_output` has no place for it,
+  so the model never saw an error from the search tool and an empty search
+  looked like a silent success. When a search result has text it now follows
+  the `tool_search_output` as a developer message ("<search tool> result:
+  ..."), with any reference to a tool not in the request named in it.
+
 ## [0.1.20]
 
 ### Added
@@ -36,9 +70,9 @@ All notable changes to spawnllm are recorded here. The format follows
   the same full tool list on every request and keep the prompt cache. The
   Anthropic provider (`anthropic-messages`) supports it for Claude 4.5 and
   later: deferred tools are sent with `defer_loading: true`, and references as
-  `tool_reference` blocks in the `tool_result` (with a text block before them
-  when the result also has text). A reference to a tool not in the request is
-  named in the text instead, since the API refuses it.
+  `tool_reference` blocks in the `tool_result` (the result's text, when it has
+  any, follows as a separate text block; see 0.1.21). A reference to a tool not
+  in the request is named in the text instead, since the API refuses it.
 - `ToolDefinition.ToolSearch` marks the host's own tool-search tool. It is
   never sent deferred. On the OpenAI Responses API (`openai-responses`) with
   gpt-5.4 or later (a bare `gpt-<major>.<minor>` id at or above 5.4), when the
@@ -48,8 +82,8 @@ All notable changes to spawnllm are recorded here. The format follows
   carry `defer_loading: true`, a `tool_search_call` from the model is
   reported as an ordinary call to the tool-search tool, and its result goes
   back as `tool_search_output` holding the full definitions of the referenced
-  tools. That item has no room for text, so the result's own text is not sent
-  there. `openai_responses.Provider` implements `DeferredToolsCapable` by the
+  tools. That item has no room for text, so the result's own text follows it
+  as a developer message (see 0.1.21). `openai_responses.Provider` implements `DeferredToolsCapable` by the
   same model rule.
 - Every provider without native support (Chat Completions, Azure, Responses
   models before gpt-5.4 or requests without a tool-search tool, and Anthropic

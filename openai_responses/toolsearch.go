@@ -46,12 +46,14 @@ func supportsToolSearch(model string) bool {
 
 // toolSearch is the client-executed tool search of one request: the host's
 // tool-search tool (sent as the tool_search tool), the request's tools by name
-// (to return full definitions in tool_search_output) and the call ids of
-// search calls seen in the history.
+// (to return full definitions in tool_search_output), the call ids of search
+// calls seen in the history and the names of the deferred tools an earlier
+// item in the input has loaded.
 type toolSearch struct {
-	name  string
-	defs  map[string]ToolDefinition
-	calls map[string]bool
+	name   string
+	defs   map[string]ToolDefinition
+	calls  map[string]bool
+	loaded map[string]bool
 }
 
 // newToolSearch returns the tool search for a request, or nil when it is not
@@ -77,7 +79,7 @@ func newToolSearch(tools []ToolDefinition, model string) *toolSearch {
 	for _, t := range tools {
 		defs[t.Function.Name] = t
 	}
-	return &toolSearch{name: name, defs: defs, calls: map[string]bool{}}
+	return &toolSearch{name: name, defs: defs, calls: map[string]bool{}, loaded: map[string]bool{}}
 }
 
 // toolName is the tool-search tool's name, "" when search is not used.
@@ -98,6 +100,21 @@ func (s *toolSearch) isCall(callID string) bool {
 	return s != nil && callID != "" && s.calls[callID]
 }
 
+// namespace is the namespace of a replayed call to the named tool: a tool
+// loaded by search is called in a namespace of its own name, which the model's
+// function_call carries and the API requires back on replay ("Missing
+// namespace for function_call"); any other tool is in the default namespace,
+// and the result is "".
+func (s *toolSearch) namespace(name string) string {
+	if s == nil {
+		return ""
+	}
+	if def, ok := s.defs[name]; ok && common.IsDeferred(def) {
+		return name
+	}
+	return ""
+}
+
 // callItem is the tool_search_call input item replaying a search call, and
 // records its id so its result becomes a tool_search_output.
 func (s *toolSearch) callItem(tc ToolCall) map[string]any {
@@ -115,22 +132,69 @@ func (s *toolSearch) callItem(tc ToolCall) map[string]any {
 	}
 }
 
-// outputItem is the tool_search_output input item for a search result: the
-// full definitions of the referenced tools that are in the request. The item
-// has no place for text, so the result's content and any reference to a tool
-// not in the request are not sent.
-func (s *toolSearch) outputItem(m Message) map[string]any {
+// outputItems are the input items for a search result: the tool_search_output
+// holding the full definitions of the referenced tools that are in the request
+// and, when the result has text, a developer message after it carrying that
+// text, named as the search tool's result. The tool_search_output has no place
+// for text, and the model would otherwise never see an error from the search
+// tool. A reference to a tool not in the request is named in the text.
+func (s *toolSearch) outputItems(m Message) []any {
 	tools := make([]map[string]any, 0, len(m.ToolReferences))
+	var rest []string
 	for _, name := range m.ToolReferences {
-		if def, ok := s.defs[name]; ok && !def.ToolSearch {
-			tools = append(tools, responsesFunction(def, true))
+		def, ok := s.defs[name]
+		if !ok || def.ToolSearch {
+			rest = append(rest, name)
+			continue
 		}
+		tools = append(tools, responsesFunction(def, true))
+		s.loaded[name] = true
 	}
-	return map[string]any{
+	items := []any{map[string]any{
 		"type":      "tool_search_output",
 		"execution": "client",
 		"call_id":   m.ToolCallID,
 		"status":    "completed",
 		"tools":     tools,
+	}}
+	if text := common.WithToolsFound(m.Content, rest); text != "" {
+		items = append(items, map[string]any{
+			"role":    "developer",
+			"content": s.name + " result: " + text,
+		})
+	}
+	return items
+}
+
+// additionalToolsItem is the additional_tools input item that follows the
+// function_call_output of a result from a tool other than the search tool
+// (e.g. one showing a tool's details) when the result references deferred
+// tools: only a tool_search_output or additional_tools item makes a deferred
+// tool callable. It holds the referenced deferred tools no earlier item has
+// loaded, and is nil when there are none. The names of referenced tools that
+// are in the request are removed from m.ToolReferences, so that only a
+// reference to a tool the request lacks is named in the result's text.
+func (s *toolSearch) additionalToolsItem(m *Message) map[string]any {
+	var tools []map[string]any
+	var rest []string
+	for _, name := range m.ToolReferences {
+		def, ok := s.defs[name]
+		if !ok {
+			rest = append(rest, name)
+			continue
+		}
+		if common.IsDeferred(def) && !s.loaded[name] {
+			tools = append(tools, responsesFunction(def, true))
+			s.loaded[name] = true
+		}
+	}
+	m.ToolReferences = rest
+	if len(tools) == 0 {
+		return nil
+	}
+	return map[string]any{
+		"type":  "additional_tools",
+		"role":  "developer",
+		"tools": tools,
 	}
 }

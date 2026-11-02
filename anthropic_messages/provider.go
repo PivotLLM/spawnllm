@@ -542,7 +542,7 @@ func buildRequestBody(
 				// Tool result message
 				apiMessages = append(apiMessages, map[string]any{
 					"role":    "user",
-					"content": []map[string]any{toolResultBlock(msg, native, sentTools)},
+					"content": toolResultBlocks(msg, native, sentTools),
 				})
 			} else {
 				// Regular user message
@@ -590,7 +590,7 @@ func buildRequestBody(
 			// Tool result (alternative format)
 			apiMessages = append(apiMessages, map[string]any{
 				"role":    "user",
-				"content": []map[string]any{toolResultBlock(msg, native, sentTools)},
+				"content": toolResultBlocks(msg, native, sentTools),
 			})
 		}
 	}
@@ -666,12 +666,15 @@ func toolNames(tools []ToolDefinition) map[string]bool {
 	return names
 }
 
-// toolResultBlock builds a tool_result block for a tool result message. Its
-// tool references become tool_reference blocks when native is set and the tool
-// is in the request (the API refuses a reference to any other); the rest, and
-// all of them otherwise, are named in the text. A result with no reference
-// blocks keeps the plain string content.
-func toolResultBlock(msg Message, native bool, sentTools map[string]bool) map[string]any {
+// toolResultBlocks builds the content of the user message that carries a tool
+// result. Its tool references become tool_reference blocks when native is set
+// and the tool is in the request (the API refuses a reference to any other);
+// the rest, and all of them otherwise, are named in the text. A result with no
+// reference blocks is one tool_result block with the plain string content.
+// Otherwise the tool_result holds only the tool_reference blocks, because the
+// API rejects a tool_result that mixes them with other content, and the text
+// follows as a separate text block.
+func toolResultBlocks(msg Message, native bool, sentTools map[string]bool) []map[string]any {
 	var refs, asText []string
 	for _, name := range msg.ToolReferences {
 		if native && sentTools[name] {
@@ -687,17 +690,18 @@ func toolResultBlock(msg Message, native bool, sentTools map[string]bool) map[st
 	}
 	if len(refs) == 0 {
 		block["content"] = text
-		return block
+		return []map[string]any{block}
 	}
-	content := make([]map[string]any, 0, 1+len(refs))
-	if text != "" {
-		content = append(content, map[string]any{"type": "text", "text": text})
-	}
+	content := make([]map[string]any, 0, len(refs))
 	for _, name := range refs {
 		content = append(content, map[string]any{"type": "tool_reference", "tool_name": name})
 	}
 	block["content"] = content
-	return block
+	blocks := []map[string]any{block}
+	if text != "" {
+		blocks = append(blocks, map[string]any{"type": "text", "text": text})
+	}
+	return blocks
 }
 
 // parseResponseBody parses Anthropic Messages API response.
