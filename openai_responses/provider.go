@@ -15,8 +15,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -49,10 +51,12 @@ type Provider struct {
 	reasoningEffort     string         // mapped to reasoning.effort
 	extraBody           map[string]any // free-form passthrough merged before marshal
 	dropParams          map[string]struct{}
-	responseFormatJSON  bool   // may emit text.format=json_object when asked
-	protocol            string // for capability gating / logs
-	modelLabel          string // user-facing model name for logs
-	responseLogFile     string // append-only JSONL diagnostic capture; "" disables
+	responseFormatJSON  bool        // may emit text.format=json_object when asked
+	protocol            string      // for capability gating / logs
+	modelLabel          string      // user-facing model name for logs
+	responseLogFile     string      // append-only JSONL diagnostic capture; "" disables
+	logFileMode         fs.FileMode // mode for a newly created response log file
+	logDirMode          fs.FileMode // mode for response log parent directories the provider creates
 	httpClient          *http.Client
 
 	logMu sync.Mutex
@@ -65,9 +69,11 @@ type Option func(*Provider)
 // is appended per request.
 func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	p := &Provider{
-		apiKey:     apiKey,
-		apiBase:    strings.TrimRight(apiBase, "/"),
-		httpClient: common.NewHTTPClient(proxy),
+		apiKey:      apiKey,
+		apiBase:     strings.TrimRight(apiBase, "/"),
+		httpClient:  common.NewHTTPClient(proxy),
+		logFileMode: 0o600,
+		logDirMode:  0o700,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -126,6 +132,15 @@ func WithModelLabel(label string) Option {
 
 func WithResponseLogFile(path string) Option {
 	return func(p *Provider) { p.responseLogFile = path }
+}
+
+// WithFileModes sets the mode for the response log file and for any parent
+// directories the provider creates for it.
+func WithFileModes(dir, file fs.FileMode) Option {
+	return func(p *Provider) {
+		p.logDirMode = dir
+		p.logFileMode = file
+	}
 }
 
 // GetDefaultModel satisfies LLMProvider; the dispatcher always passes an explicit
@@ -781,7 +796,10 @@ func (p *Provider) appendLog(dir, model string, status int, durationMs int64, bo
 	}
 	p.logMu.Lock()
 	defer p.logMu.Unlock()
-	f, err := os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if mkErr := os.MkdirAll(filepath.Dir(p.responseLogFile), p.logDirMode); mkErr != nil {
+		return
+	}
+	f, err := os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, p.logFileMode)
 	if err != nil {
 		return
 	}
