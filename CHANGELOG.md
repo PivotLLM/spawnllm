@@ -4,6 +4,19 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.23]
+
+### Fixed
+
+- `openai_compat` and `openai_responses`: the modes given with
+  `WithFileModes(dir, file)` were narrowed by the process umask (for example
+  0770/0660 became 0750/0640 under the usual umask 022), so a host could not
+  give a group write access to the response log. The response log file now
+  always gets exactly the configured file mode, set on the open file each time
+  it is opened, and each parent directory created for it gets exactly the
+  configured directory mode. Directories that already exist are left as they
+  are.
+
 ## [0.1.22]
 
 ### Added
