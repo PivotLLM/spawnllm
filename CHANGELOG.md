@@ -4,6 +4,19 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.22]
+
+### Added
+
+- `WithFileModes(dir, file)` for `openai_compat` and `openai_responses` sets the
+  mode of the response log file and of the parent directories created for it.
+- The response log file's missing parent directories are now created.
+
+### Changed
+
+- `openai_compat`: the response log file's default mode is now 0600 (was
+  0640).
+
 ## [0.1.21]
 
 ### Fixed

@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -49,6 +51,8 @@ type Provider struct {
 	strictCompat        bool                // Strip non-standard fields for strict OpenAI-compatible endpoints
 	noParallelToolCalls bool                // Send parallel_tool_calls=false (required by Groq/some Llama providers)
 	responseLogFile     string              // Append JSONL request+response records here when non-empty (diagnostic only)
+	logFileMode         fs.FileMode         // Mode for a newly created response log file
+	logDirMode          fs.FileMode         // Mode for response log parent directories the provider creates
 	reasoningEffort     string              // OpenAI/Grok `reasoning_effort` request field; empty omits it
 	extraBody           map[string]any      // Free-form passthrough merged into the request body before marshal
 	dropParams          map[string]struct{} // Top-level request-body fields to strip just before marshal
@@ -110,6 +114,15 @@ func WithStrictAlternation(v bool) Option {
 func WithResponseLogFile(path string) Option {
 	return func(p *Provider) {
 		p.responseLogFile = path
+	}
+}
+
+// WithFileModes sets the mode for the response log file and for any parent
+// directories the provider creates for it.
+func WithFileModes(dir, file fs.FileMode) Option {
+	return func(p *Provider) {
+		p.logDirMode = dir
+		p.logFileMode = file
 	}
 }
 
@@ -196,9 +209,11 @@ func (p *Provider) ReasoningEffort() string { return p.reasoningEffort }
 
 func NewProvider(apiKey, apiBase, proxy string, opts ...Option) *Provider {
 	p := &Provider{
-		apiKey:     apiKey,
-		apiBase:    strings.TrimRight(apiBase, "/"),
-		httpClient: common.NewHTTPClient(proxy),
+		apiKey:      apiKey,
+		apiBase:     strings.TrimRight(apiBase, "/"),
+		httpClient:  common.NewHTTPClient(proxy),
+		logFileMode: 0o600,
+		logDirMode:  0o700,
 	}
 
 	for _, opt := range opts {
@@ -814,8 +829,9 @@ func (p *Provider) appendResponseLog(corrID, wireModel string, status int, durat
 
 // writeLogEntry serialises a logEntry to JSONL and appends it to the configured
 // response_log_file. The file handle is opened lazily on first use and reused
-// for the Provider's lifetime; mode 0640 keeps the file readable by group but
-// not world. Failure to open or write must NOT block or fail the actual
+// for the Provider's lifetime; missing parent directories are created first.
+// Modes default to 0600 for the file and 0700 for created directories (see
+// WithFileModes). Failure to open or write must NOT block or fail the actual
 // request — at most one WRN is emitted per Provider lifetime via sync.Once.
 func (p *Provider) writeLogEntry(e logEntry) {
 	if p.responseLogFile == "" {
@@ -831,7 +847,11 @@ func (p *Provider) writeLogEntry(e logEntry) {
 	defer p.logMu.Unlock()
 
 	if p.logFile == nil && p.logOpenErr == nil {
-		f, err := os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o640)
+		err := os.MkdirAll(filepath.Dir(p.responseLogFile), p.logDirMode)
+		var f *os.File
+		if err == nil {
+			f, err = os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, p.logFileMode)
+		}
 		if err != nil {
 			p.logOpenErr = err
 			p.logErrOnce.Do(func() {
