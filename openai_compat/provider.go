@@ -118,7 +118,10 @@ func WithResponseLogFile(path string) Option {
 }
 
 // WithFileModes sets the mode for the response log file and for any parent
-// directories the provider creates for it.
+// directories the provider creates for it. The modes are applied exactly,
+// whatever the process umask: the file's mode is set whenever it is opened,
+// and each directory the provider creates gets the directory mode (existing
+// directories are left as they are).
 func WithFileModes(dir, file fs.FileMode) Option {
 	return func(p *Provider) {
 		p.logDirMode = dir
@@ -847,10 +850,10 @@ func (p *Provider) writeLogEntry(e logEntry) {
 	defer p.logMu.Unlock()
 
 	if p.logFile == nil && p.logOpenErr == nil {
-		err := os.MkdirAll(filepath.Dir(p.responseLogFile), p.logDirMode)
+		err := common.MkdirAllExact(filepath.Dir(p.responseLogFile), p.logDirMode)
 		var f *os.File
 		if err == nil {
-			f, err = os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, p.logFileMode)
+			f, err = common.OpenAppendExact(p.responseLogFile, p.logFileMode)
 		}
 		if err != nil {
 			p.logOpenErr = err

@@ -17,7 +17,6 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -135,7 +134,10 @@ func WithResponseLogFile(path string) Option {
 }
 
 // WithFileModes sets the mode for the response log file and for any parent
-// directories the provider creates for it.
+// directories the provider creates for it. The modes are applied exactly,
+// whatever the process umask: the file's mode is set whenever it is opened,
+// and each directory the provider creates gets the directory mode (existing
+// directories are left as they are).
 func WithFileModes(dir, file fs.FileMode) Option {
 	return func(p *Provider) {
 		p.logDirMode = dir
@@ -796,10 +798,10 @@ func (p *Provider) appendLog(dir, model string, status int, durationMs int64, bo
 	}
 	p.logMu.Lock()
 	defer p.logMu.Unlock()
-	if mkErr := os.MkdirAll(filepath.Dir(p.responseLogFile), p.logDirMode); mkErr != nil {
+	if mkErr := common.MkdirAllExact(filepath.Dir(p.responseLogFile), p.logDirMode); mkErr != nil {
 		return
 	}
-	f, err := os.OpenFile(p.responseLogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, p.logFileMode)
+	f, err := common.OpenAppendExact(p.responseLogFile, p.logFileMode)
 	if err != nil {
 		return
 	}

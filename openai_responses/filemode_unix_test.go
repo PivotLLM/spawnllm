@@ -13,11 +13,12 @@ import (
 	"testing"
 )
 
-// TestResponseLogFileModes checks the modes of the response log file and of
-// the parent directories created for it. It sets the process umask to 0, so it
-// must not run in parallel with other tests.
+// TestResponseLogFileModes checks that the response log file and the parent
+// directories created for it get exactly the configured modes under a umask
+// that would narrow them. The umask is process-wide, so it must not run in
+// parallel with other tests.
 func TestResponseLogFileModes(t *testing.T) {
-	oldMask := syscall.Umask(0)
+	oldMask := syscall.Umask(0o077)
 	t.Cleanup(func() { syscall.Umask(oldMask) })
 
 	tests := []struct {
@@ -27,7 +28,7 @@ func TestResponseLogFileModes(t *testing.T) {
 		wantFile fs.FileMode
 	}{
 		{name: "defaults", wantDir: 0o700, wantFile: 0o600},
-		{name: "custom", opts: []Option{WithFileModes(0o750, 0o640)}, wantDir: 0o750, wantFile: 0o640},
+		{name: "group writable", opts: []Option{WithFileModes(0o770, 0o660)}, wantDir: 0o770, wantFile: 0o660},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
