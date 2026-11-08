@@ -46,6 +46,36 @@ type LLMResponse struct {
 	// API requires them back, unmodified, at the start of the assistant turn
 	// when a tool-use loop continues with thinking on. Empty without thinking.
 	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
+	// Images holds the images the model generated in this reply, in the order
+	// the response gave them, passed through unfiltered whatever their size.
+	// Set by openai_compat (the assistant message's images array, OpenRouter's
+	// format, streamed or not) and openai_responses (image_generation_call
+	// output items); the Anthropic provider and the CLI providers never set
+	// it, since those APIs return no images. A reply may carry images and an
+	// empty Content; it is still a complete reply.
+	Images []GeneratedImage `json:"images,omitempty"`
+}
+
+// GeneratedImage is one image a model generated as part of its reply.
+// Exactly one of Data or URL is set.
+type GeneratedImage struct {
+	// ContentType is the image's media type (for example image/png). With
+	// Data: the one the response declared, else the one detected from Data.
+	// With URL: the media type a data URL declares, else empty, since
+	// spawnllm never fetches a URL to learn it.
+	ContentType string `json:"content_type,omitempty"`
+	// Data is the decoded image, set when the response carried it as base64.
+	Data []byte `json:"data,omitempty"`
+	// URL is set when the response gave the image as a URL (http, https, …),
+	// returned as given and never fetched. It is also set, to a data URL,
+	// when the response's base64 does not decode: a data URL the response
+	// gave is returned unchanged, and a bare base64 string is returned as
+	// "data:;base64," followed by it, so the model's output is never lost.
+	URL string `json:"url,omitempty"`
+	// Size is the length in bytes of the decoded image, len(Data), so a
+	// receiver can check it before accepting the image. It is -1 (unknown)
+	// when URL is set, since a URL image is never fetched.
+	Size int64 `json:"size"`
 }
 
 // DispatchStatus is populated by each provider on every Chat() return

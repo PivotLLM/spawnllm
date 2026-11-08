@@ -18,6 +18,16 @@ Logging is host-injectable via the `logger` subpackage (`logger.SetBackend`), so
 provider/loop logs flow into the host's own logger; spawnllm is silent until a
 backend is installed.
 
+## Generated images
+
+Images a model returns come back in `LLMResponse.Images` (and, for a whole
+run, `Result.Images`), passed through unfiltered and whatever their size:
+spawnllm executes the call and leaves judging the data to the caller. Each
+`GeneratedImage` has exactly one of `Data` (decoded base64, with its
+`ContentType`) or `URL` (an image given as a URL, never fetched; also base64
+that does not decode, returned as a data URL so nothing is lost). `Size` is
+the decoded length in bytes, or -1 (unknown) for a `URL` image.
+
 ## Building and testing
 
 `make test` is the gate. It runs `./test.sh`, which verifies formatting

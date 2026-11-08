@@ -4,6 +4,27 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.24]
+
+### Added
+
+- `LLMResponse.Images` (`[]GeneratedImage`): the images a model generates are
+  returned with the reply instead of being dropped, unfiltered and whatever
+  their size; the caller decides what to keep. Each image has exactly one of
+  `Data` (decoded from base64, with `ContentType` from the data URL, else
+  detected from the bytes) or `URL` (an image given as a URL, returned as
+  given and never fetched). `Size` is the decoded length in bytes, so a
+  receiver can check it before accepting the image; it is -1 (unknown) for a
+  `URL` image. Base64 that does not decode is not dropped: it is
+  returned as `URL`, the data URL unchanged (a bare base64 string behind
+  `data:;base64,`), with a WARN naming the model. `openai_compat` reads the
+  assistant message's `images` array (OpenRouter's format, e.g. Gemini image
+  models), streamed (`delta.images`) or not; `openai_responses` reads
+  `image_generation_call` output items, streamed or not. The Anthropic and
+  CLI providers return no images. A reply may carry images with empty text;
+  it is still a normal reply. `Worker.Run` returns the images of the whole
+  run in `Result.Images`.
+
 ## [0.1.23]
 
 ### Fixed

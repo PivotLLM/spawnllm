@@ -87,6 +87,7 @@ type chatStreamChunk struct {
 			ReasoningContent string           `json:"reasoning_content"`
 			Reasoning        string           `json:"reasoning"`
 			ToolCalls        []streamToolCall `json:"tool_calls"`
+			Images           []ChatImage      `json:"images"`
 		} `json:"delta"`
 		FinishReason string `json:"finish_reason"`
 	} `json:"choices"`
@@ -146,6 +147,7 @@ func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]st
 		usageRaw     json.RawMessage
 		toolOrder    []int
 		toolByIndex  = map[int]*accToolCall{}
+		images       []ChatImage
 	)
 
 	for {
@@ -190,6 +192,8 @@ func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]st
 			if ch.Delta.Reasoning != "" {
 				reasoning.WriteString(ch.Delta.Reasoning)
 			}
+			// Each streamed image arrives whole in one delta.
+			images = append(images, ch.Delta.Images...)
 			for _, tc := range ch.Delta.ToolCalls {
 				acc, seen := toolByIndex[tc.Index]
 				if !seen {
@@ -218,7 +222,7 @@ func AccumulateChatStream(r io.Reader, cb TextDeltaFunc, toolNames map[string]st
 	}
 
 	body := reconstructChatBody(model, content.String(), reasoningC.String(),
-		reasoning.String(), finishReason, usageRaw, toolOrder, toolByIndex)
+		reasoning.String(), finishReason, usageRaw, toolOrder, toolByIndex, images)
 
 	out, err := ParseResponse(strings.NewReader(string(body)), toolNames, opts...)
 	if err != nil {
@@ -236,6 +240,7 @@ func reconstructChatBody(
 	usageRaw json.RawMessage,
 	toolOrder []int,
 	toolByIndex map[int]*accToolCall,
+	images []ChatImage,
 ) []byte {
 	message := map[string]any{
 		"role":    "assistant",
@@ -246,6 +251,9 @@ func reconstructChatBody(
 	}
 	if reasoning != "" {
 		message["reasoning"] = reasoning
+	}
+	if len(images) > 0 {
+		message["images"] = images
 	}
 	if len(toolOrder) > 0 {
 		calls := make([]map[string]any, 0, len(toolOrder))

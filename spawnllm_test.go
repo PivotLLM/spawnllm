@@ -238,3 +238,30 @@ func TestRun_APILoop_KeepsReasoningState(t *testing.T) {
 		})
 	}
 }
+
+func TestRun_APILoop_ReturnsGeneratedImages(t *testing.T) {
+	img1 := GeneratedImage{ContentType: "image/png", Data: []byte("a"), Size: 1}
+	img2 := GeneratedImage{URL: "https://example.com/b.png", Size: -1}
+	tool := toolspec.ToolDefinition{
+		Name: "echo",
+		Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
+			return &toolspec.Result{ForLLM: "ok"}, nil
+		},
+	}
+	prov := &scriptedProvider{resps: []*LLMResponse{
+		{ToolCalls: []ToolCall{{ID: "c1", Name: "echo"}}, Images: []GeneratedImage{img1}},
+		{Images: []GeneratedImage{img2}}, // images only, no text
+	}}
+	w, err := New(WithProviderInstance(prov, "m"), WithTools([]toolspec.ToolDefinition{tool}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	res, err := w.Run(context.Background(), []Message{{Role: "user", Content: "draw"}})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Images) != 2 || string(res.Images[0].Data) != "a" || res.Images[0].Size != 1 ||
+		res.Images[1].URL != img2.URL || res.Images[1].Size != -1 {
+		t.Fatalf("Images = %+v, want both images in order", res.Images)
+	}
+}

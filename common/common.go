@@ -182,6 +182,16 @@ func applyParseOptions(opts []ParseOption) parseOptions {
 	return o
 }
 
+// ChatImage is one entry of an assistant message's images array (OpenRouter's
+// image output): {"type":"image_url","image_url":{"url":"data:image/png;base64,..."}}.
+// Streaming delivers the same entries in delta.images.
+type ChatImage struct {
+	Type     string `json:"type"`
+	ImageURL struct {
+		URL string `json:"url"`
+	} `json:"image_url"`
+}
+
 // ParseResponse parses a JSON chat completion response body into an LLMResponse.
 // The returned LLMResponse carries a partial DispatchStatus (Success and DurationMs
 // are intentionally left for the caller, which knows the HTTP outcome and wall-clock).
@@ -200,6 +210,7 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}, opts ...ParseO
 				ReasoningContent string            `json:"reasoning_content"`
 				Reasoning        string            `json:"reasoning"`
 				ReasoningDetails []ReasoningDetail `json:"reasoning_details"`
+				Images           []ChatImage       `json:"images"`
 				ToolCalls        []struct {
 					ID       string `json:"id"`
 					Type     string `json:"type"`
@@ -267,8 +278,12 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}, opts ...ParseO
 	var aggReasoningContent string
 	var aggReasoning string
 	var aggReasoningDetails []ReasoningDetail
+	images := NewImageCollector(apiResponse.Model)
 
 	for idx, choice := range apiResponse.Choices {
+		for _, img := range choice.Message.Images {
+			images.AddURL(img.ImageURL.URL)
+		}
 		toolCalls := make([]ToolCall, 0, len(choice.Message.ToolCalls))
 		for _, tc := range choice.Message.ToolCalls {
 			arguments := make(map[string]any)
@@ -385,6 +400,7 @@ func ParseResponse(body io.Reader, toolNames map[string]struct{}, opts ...ParseO
 		Reasoning:        aggReasoning,
 		ReasoningDetails: aggReasoningDetails,
 		ToolCalls:        aggToolCalls,
+		Images:           images.Images(),
 		FinishReason:     choice0.FinishReason,
 		Normal:           choice0.FinishReason == "stop" || choice0.FinishReason == "tool_calls",
 		Usage:            usage,
