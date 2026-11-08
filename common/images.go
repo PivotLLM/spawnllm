@@ -2,7 +2,6 @@ package common
 
 import (
 	"encoding/base64"
-	"maps"
 	"net/http"
 	"strings"
 
@@ -10,22 +9,17 @@ import (
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
 
-// Size caps for the images a model generates (LLMResponse.Images). An image
-// over MaxImageBytes, or one that would take a response past MaxImagesBytes,
-// is left out with a WARN; the reply itself still succeeds.
-const (
-	MaxImageBytes  = 20 << 20 // 20 MiB decoded, per image
-	MaxImagesBytes = 64 << 20 // 64 MiB decoded, all images of one response
-)
-
-// imageWarnFn is the WARN hook for skipped images; tests swap it.
+// imageWarnFn is the WARN hook for images passed through undecoded; tests
+// swap it.
 var imageWarnFn = logger.WarnCF
 
-// ImageCollector decodes the images of one response, applying the size caps.
-// model names the model in the WARN logged for each image it leaves out.
+// ImageCollector gathers the images of one response, in order. It passes
+// through every image the model returned, whatever its size: base64 data is
+// decoded into Data, anything else is returned as URL, never fetched and never
+// dropped. model names the model in the WARN logged for data that does not
+// decode.
 type ImageCollector struct {
 	model  string
-	total  int
 	images []protocoltypes.GeneratedImage
 }
 
@@ -39,62 +33,73 @@ func (c *ImageCollector) Images() []protocoltypes.GeneratedImage {
 	return c.images
 }
 
-// AddURL adds the image a URL carries. Only base64 data URLs are decoded; any
-// other URL (http, https, …) is skipped with a WARN and never fetched, so the
-// library makes no request the caller did not make.
+// AddURL adds the image a URL carries. A base64 data URL is decoded into
+// Data, with the data URL's media type, else the one detected from the bytes.
+// Any other URL (http, https, …) is returned as URL, unfetched, so the library
+// makes no request the caller did not make. A data URL that cannot be decoded
+// (not base64, malformed, empty) is returned as URL too, unchanged, with the
+// media type it declares, so the model's output is never lost. An empty url
+// carries no image and is ignored.
 func (c *ImageCollector) AddURL(url string) {
+	if url == "" {
+		return
+	}
 	rest, ok := strings.CutPrefix(url, "data:")
 	if !ok {
-		c.skip("image given as a remote URL, not fetched", map[string]any{"url": previewURL(url)})
+		c.images = append(c.images, protocoltypes.GeneratedImage{URL: url})
 		return
 	}
 	meta, payload, ok := strings.Cut(rest, ",")
 	mediaType, params, _ := strings.Cut(meta, ";")
-	if !ok || !hasBase64Param(params) {
-		c.skip("image data URL is not base64", nil)
-		return
+	mediaType = strings.TrimSpace(mediaType)
+	if ok && hasBase64Param(params) {
+		if data, ok := decodeImage(payload); ok {
+			c.addData(data, mediaType)
+			return
+		}
 	}
-	c.AddBase64(payload, strings.TrimSpace(mediaType))
+	c.passThrough(url, mediaType)
 }
 
-// AddBase64 adds a base64-encoded image. contentType is the declared media
-// type; when empty it is sniffed from the decoded bytes.
-func (c *ImageCollector) AddBase64(b64, contentType string) {
-	b64 = strings.TrimSpace(b64)
-	// DecodedLen is an upper bound (padding included); checking it first
-	// refuses a clearly oversize image without allocating for it.
-	if base64.StdEncoding.DecodedLen(len(b64))-2 > MaxImageBytes {
-		c.skip("image over the size cap", map[string]any{"limit_bytes": MaxImageBytes})
+// AddBase64 adds a base64-encoded image, its media type detected from the
+// decoded bytes. Data that does not decode is returned as URL in the form
+// "data:;base64,<b64>": the original text, unchanged, behind a fixed prefix.
+// An empty b64 carries no image and is ignored.
+func (c *ImageCollector) AddBase64(b64 string) {
+	if b64 == "" {
 		return
 	}
-	data, err := base64.StdEncoding.DecodeString(b64)
-	if err != nil {
-		c.skip("image base64 does not decode", map[string]any{"error": err.Error()})
+	if data, ok := decodeImage(b64); ok {
+		c.addData(data, "")
 		return
 	}
-	if len(data) == 0 {
-		c.skip("image is empty", nil)
-		return
-	}
-	if len(data) > MaxImageBytes {
-		c.skip("image over the size cap", map[string]any{"bytes": len(data), "limit_bytes": MaxImageBytes})
-		return
-	}
-	if c.total+len(data) > MaxImagesBytes {
-		c.skip("images over the per-response size cap", map[string]any{"bytes": len(data), "limit_bytes": MaxImagesBytes})
-		return
-	}
+	c.passThrough("data:;base64,"+b64, "")
+}
+
+func (c *ImageCollector) addData(data []byte, contentType string) {
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	c.total += len(data)
 	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, Data: data})
 }
 
-func (c *ImageCollector) skip(reason string, fields map[string]any) {
-	f := map[string]any{"model": c.model, "reason": reason}
-	maps.Copy(f, fields)
-	imageWarnFn("common", "Generated image skipped", f)
+// passThrough returns image data that could not be decoded as a data URL,
+// with a WARN, so the caller still receives what the model returned.
+// contentType is the media type the data URL declares, if any.
+func (c *ImageCollector) passThrough(dataURL, contentType string) {
+	imageWarnFn("common", "Generated image data does not decode, returned as URL",
+		map[string]any{"model": c.model, "length": len(dataURL)})
+	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, URL: dataURL})
+}
+
+// decodeImage decodes standard base64, reporting false when it is malformed
+// or decodes to nothing.
+func decodeImage(b64 string) ([]byte, bool) {
+	data, err := base64.StdEncoding.DecodeString(strings.TrimSpace(b64))
+	if err != nil || len(data) == 0 {
+		return nil, false
+	}
+	return data, true
 }
 
 // hasBase64Param reports whether a data URL's parameters include base64.
@@ -105,16 +110,4 @@ func hasBase64Param(params string) bool {
 		}
 	}
 	return false
-}
-
-// previewURL keeps a logged URL short: signed URLs can be long and carry
-// credentials in the query, so only the part before it is kept.
-func previewURL(url string) string {
-	if i := strings.IndexAny(url, "?#"); i >= 0 {
-		url = url[:i]
-	}
-	if len(url) > 200 {
-		url = url[:200]
-	}
-	return url
 }

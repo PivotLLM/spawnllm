@@ -23,15 +23,15 @@ func imageResponse(result string) string {
 func TestChat_GeneratedImages(t *testing.T) {
 	good := base64.StdEncoding.EncodeToString(pngBytes)
 	tests := []struct {
-		name       string
-		result     string
-		stream     bool
-		wantImages int
+		name    string
+		result  string
+		stream  bool
+		wantURL string // empty: the decoded PNG is expected
 	}{
-		{name: "non-streaming", result: good, wantImages: 1},
-		{name: "streaming", result: good, stream: true, wantImages: 1},
-		{name: "malformed base64 is skipped", result: "@@not base64@@", wantImages: 0},
-		{name: "malformed base64 is skipped when streaming", result: "@@not base64@@", stream: true, wantImages: 0},
+		{name: "non-streaming", result: good},
+		{name: "streaming", result: good, stream: true},
+		{name: "malformed base64 is passed through", result: "@@not base64@@", wantURL: "data:;base64,@@not base64@@"},
+		{name: "malformed base64 is passed through when streaming", result: "@@not base64@@", stream: true, wantURL: "data:;base64,@@not base64@@"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -56,11 +56,18 @@ func TestChat_GeneratedImages(t *testing.T) {
 			if !out.Normal {
 				t.Errorf("Normal = false, want true")
 			}
-			if len(out.Images) != tc.wantImages {
-				t.Fatalf("Images = %d, want %d", len(out.Images), tc.wantImages)
+			if len(out.Images) != 1 {
+				t.Fatalf("Images = %d, want 1", len(out.Images))
 			}
-			if tc.wantImages == 1 && (out.Images[0].ContentType != "image/png" || !bytes.Equal(out.Images[0].Data, pngBytes)) {
-				t.Errorf("Images[0] = %q %q, want image/png and the PNG bytes", out.Images[0].ContentType, out.Images[0].Data)
+			img := out.Images[0]
+			if tc.wantURL != "" {
+				if img.URL != tc.wantURL || img.Data != nil {
+					t.Errorf("Images[0] = %+v, want URL %q only", img, tc.wantURL)
+				}
+				return
+			}
+			if img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.URL != "" {
+				t.Errorf("Images[0] = %+v, want image/png and the PNG bytes", img)
 			}
 		})
 	}

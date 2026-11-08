@@ -18,13 +18,17 @@ func pngDataURL() string {
 
 // TestProviderChat_GeneratedImages checks the OpenRouter image-output shape
 // (message.images, delta.images when streaming) reaches LLMResponse.Images,
-// alongside the text, in both modes.
+// alongside the text, in both modes: a data URL decoded into Data, an https
+// URL passed through as URL.
 func TestProviderChat_GeneratedImages(t *testing.T) {
+	const remoteURL = "https://cdn.example.com/cat.png"
 	nonStreaming := `{"id":"gen-1","model":"google/gemini-2.5-flash-image","choices":[{"index":0,"finish_reason":"stop",` +
-		`"message":{"role":"assistant","content":"A cat.","images":[{"type":"image_url","image_url":{"url":"` + pngDataURL() + `"}}]}}],` +
+		`"message":{"role":"assistant","content":"A cat.","images":[{"type":"image_url","image_url":{"url":"` + pngDataURL() + `"}},` +
+		`{"type":"image_url","image_url":{"url":"` + remoteURL + `"}}]}}],` +
 		`"usage":{"prompt_tokens":5,"completion_tokens":1290,"total_tokens":1295}}`
 	streaming := "data: " + `{"model":"google/gemini-2.5-flash-image","choices":[{"index":0,"delta":{"role":"assistant","content":"A cat."}}]}` + "\n\n" +
-		"data: " + `{"model":"google/gemini-2.5-flash-image","choices":[{"index":0,"delta":{"role":"assistant","content":"","images":[{"type":"image_url","index":0,"image_url":{"url":"` + pngDataURL() + `"}}]},"finish_reason":"stop"}]}` + "\n\n" +
+		"data: " + `{"model":"google/gemini-2.5-flash-image","choices":[{"index":0,"delta":{"role":"assistant","content":"","images":[{"type":"image_url","index":0,"image_url":{"url":"` + pngDataURL() + `"}}]}}]}` + "\n\n" +
+		"data: " + `{"model":"google/gemini-2.5-flash-image","choices":[{"index":0,"delta":{"images":[{"type":"image_url","index":1,"image_url":{"url":"` + remoteURL + `"}}]},"finish_reason":"stop"}]}` + "\n\n" +
 		"data: " + `{"model":"google/gemini-2.5-flash-image","choices":[],"usage":{"prompt_tokens":5,"completion_tokens":1290,"total_tokens":1295}}` + "\n\n" +
 		"data: [DONE]\n\n"
 
@@ -63,11 +67,14 @@ func TestProviderChat_GeneratedImages(t *testing.T) {
 			if out.Content != "A cat." {
 				t.Errorf("Content = %q, want %q", out.Content, "A cat.")
 			}
-			if len(out.Images) != 1 {
-				t.Fatalf("Images = %d, want 1", len(out.Images))
+			if len(out.Images) != 2 {
+				t.Fatalf("Images = %d, want 2", len(out.Images))
 			}
-			if out.Images[0].ContentType != "image/png" || !bytes.Equal(out.Images[0].Data, pngBytes) {
-				t.Errorf("Images[0] = %q %q, want image/png and the PNG bytes", out.Images[0].ContentType, out.Images[0].Data)
+			if img := out.Images[0]; img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.URL != "" {
+				t.Errorf("Images[0] = %+v, want image/png and the PNG bytes", img)
+			}
+			if img := out.Images[1]; img.URL != remoteURL || img.Data != nil || img.ContentType != "" {
+				t.Errorf("Images[1] = %+v, want URL %q only", img, remoteURL)
 			}
 			if !out.Normal {
 				t.Errorf("Normal = false, want true")

@@ -703,7 +703,7 @@ func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 		case "image_generation_call":
 			// The media type is sniffed: the item's output_format is not
 			// always present.
-			images.AddBase64(item.Result, "")
+			images.AddBase64(item.Result)
 		}
 	}
 

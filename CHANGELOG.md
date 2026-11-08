@@ -8,19 +8,20 @@ All notable changes to spawnllm are recorded here. The format follows
 
 ### Added
 
-- `LLMResponse.Images` (`[]GeneratedImage`, each with `ContentType` and the
-  decoded `Data`): the images a model generates are returned with the reply
-  instead of being dropped. `openai_compat` reads the assistant message's
-  `images` array (OpenRouter's format, e.g. Gemini image models), streamed
-  (`delta.images`) or not; `openai_responses` reads `image_generation_call`
-  output items, streamed or not. The Anthropic and CLI providers return no
-  images. A reply may carry images with empty text; it is still a normal
-  reply. `Worker.Run` returns the images of the whole run in `Result.Images`.
-- An image is left out, with a WARN naming the model, when it is given only
-  as a remote URL (spawnllm never fetches it), does not decode, or is over
-  the caps: `common.MaxImageBytes` (20 MiB per image) and
-  `common.MaxImagesBytes` (64 MiB per response). The reply itself never
-  fails because of an image.
+- `LLMResponse.Images` (`[]GeneratedImage`): the images a model generates are
+  returned with the reply instead of being dropped, unfiltered and whatever
+  their size; the caller decides what to keep. Each image has exactly one of
+  `Data` (decoded from base64, with `ContentType` from the data URL, else
+  detected from the bytes) or `URL` (an image given as a URL, returned as
+  given and never fetched). Base64 that does not decode is not dropped: it is
+  returned as `URL`, the data URL unchanged (a bare base64 string behind
+  `data:;base64,`), with a WARN naming the model. `openai_compat` reads the
+  assistant message's `images` array (OpenRouter's format, e.g. Gemini image
+  models), streamed (`delta.images`) or not; `openai_responses` reads
+  `image_generation_call` output items, streamed or not. The Anthropic and
+  CLI providers return no images. A reply may carry images with empty text;
+  it is still a normal reply. `Worker.Run` returns the images of the whole
+  run in `Result.Images`.
 
 ## [0.1.23]
 
