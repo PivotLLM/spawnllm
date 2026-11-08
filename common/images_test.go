@@ -37,42 +37,42 @@ func TestImageCollector_AddURL(t *testing.T) {
 	}{
 		{
 			name: "png data URL", url: pngDataURL(),
-			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes}},
+			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes, Size: int64(len(pngBytes))}},
 		},
 		{
 			name: "declared type wins", url: "data:image/webp;base64," + base64.StdEncoding.EncodeToString(pngBytes),
-			want: []protocoltypes.GeneratedImage{{ContentType: "image/webp", Data: pngBytes}},
+			want: []protocoltypes.GeneratedImage{{ContentType: "image/webp", Data: pngBytes, Size: int64(len(pngBytes))}},
 		},
 		{
 			name: "no declared type is detected", url: "data:;base64," + base64.StdEncoding.EncodeToString(pngBytes),
-			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes}},
+			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes, Size: int64(len(pngBytes))}},
 		},
 		{
 			name: "https URL passed through", url: "https://cdn.example.com/img.png?sig=secret",
-			want: []protocoltypes.GeneratedImage{{URL: "https://cdn.example.com/img.png?sig=secret"}},
+			want: []protocoltypes.GeneratedImage{{URL: "https://cdn.example.com/img.png?sig=secret", Size: -1}},
 		},
 		{
 			name: "http URL passed through", url: "http://example.com/a.png",
-			want: []protocoltypes.GeneratedImage{{URL: "http://example.com/a.png"}},
+			want: []protocoltypes.GeneratedImage{{URL: "http://example.com/a.png", Size: -1}},
 		},
 		{
 			name: "malformed base64 passed through", url: "data:image/png;base64,@@not base64@@",
-			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64,@@not base64@@"}},
+			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64,@@not base64@@", Size: -1}},
 			wantWarn: true,
 		},
 		{
 			name: "not base64 encoded passed through", url: "data:image/png,%89PNG",
-			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png,%89PNG"}},
+			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png,%89PNG", Size: -1}},
 			wantWarn: true,
 		},
 		{
 			name: "no comma passed through", url: "data:image/png;base64",
-			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64"}},
+			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64", Size: -1}},
 			wantWarn: true,
 		},
 		{
 			name: "empty payload passed through", url: "data:image/png;base64,",
-			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64,"}},
+			want:     []protocoltypes.GeneratedImage{{ContentType: "image/png", URL: "data:image/png;base64,", Size: -1}},
 			wantWarn: true,
 		},
 		{name: "empty URL is no image", url: ""},
@@ -97,11 +97,11 @@ func TestImageCollector_AddBase64(t *testing.T) {
 	}{
 		{
 			name: "decoded and detected", b64: base64.StdEncoding.EncodeToString(pngBytes),
-			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes}},
+			want: []protocoltypes.GeneratedImage{{ContentType: "image/png", Data: pngBytes, Size: int64(len(pngBytes))}},
 		},
 		{
 			name: "malformed passed through as data URL", b64: "@@not base64@@",
-			want:     []protocoltypes.GeneratedImage{{URL: "data:;base64,@@not base64@@"}},
+			want:     []protocoltypes.GeneratedImage{{URL: "data:;base64,@@not base64@@", Size: -1}},
 			wantWarn: true,
 		},
 		{name: "empty is no image", b64: ""},
@@ -133,8 +133,8 @@ func TestImageCollector_AnySize(t *testing.T) {
 		t.Fatalf("Images() = %d, want 3", len(imgs))
 	}
 	for i, img := range imgs {
-		if len(img.Data) != size || img.URL != "" {
-			t.Errorf("Images()[%d]: %d bytes, URL %q; want %d bytes and no URL", i, len(img.Data), img.URL, size)
+		if len(img.Data) != size || img.Size != size || img.URL != "" {
+			t.Errorf("Images()[%d]: %d bytes, Size %d, URL %q; want %d bytes and no URL", i, len(img.Data), img.Size, img.URL, size)
 		}
 	}
 }
@@ -146,8 +146,8 @@ func assertImages(t *testing.T, got, want []protocoltypes.GeneratedImage) {
 	}
 	for i := range want {
 		g, w := got[i], want[i]
-		if g.ContentType != w.ContentType || g.URL != w.URL || !bytes.Equal(g.Data, w.Data) {
-			t.Errorf("Images()[%d] = {%q %q %q}, want {%q %q %q}", i, g.ContentType, g.URL, g.Data, w.ContentType, w.URL, w.Data)
+		if g.ContentType != w.ContentType || g.URL != w.URL || g.Size != w.Size || !bytes.Equal(g.Data, w.Data) {
+			t.Errorf("Images()[%d] = {%q %q %d %q}, want {%q %q %d %q}", i, g.ContentType, g.URL, g.Size, g.Data, w.ContentType, w.URL, w.Size, w.Data)
 		}
 		if (len(g.Data) > 0) == (g.URL != "") {
 			t.Errorf("Images()[%d]: exactly one of Data or URL must be set", i)
@@ -184,8 +184,8 @@ func TestParseResponse_Images(t *testing.T) {
 		t.Errorf("Content = %q", out.Content)
 	}
 	assertImages(t, out.Images, []protocoltypes.GeneratedImage{
-		{ContentType: "image/png", Data: pngBytes},
-		{URL: "https://example.com/a.png"},
+		{ContentType: "image/png", Data: pngBytes, Size: int64(len(pngBytes))},
+		{URL: "https://example.com/a.png", Size: -1},
 	})
 }
 
@@ -218,7 +218,7 @@ func TestAccumulateChatStream_Images(t *testing.T) {
 		t.Errorf("Content = %q", out.Content)
 	}
 	assertImages(t, out.Images, []protocoltypes.GeneratedImage{
-		{ContentType: "image/png", Data: pngBytes},
-		{URL: "https://example.com/b.png"},
+		{ContentType: "image/png", Data: pngBytes, Size: int64(len(pngBytes))},
+		{URL: "https://example.com/b.png", Size: -1},
 	})
 }

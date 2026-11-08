@@ -70,11 +70,11 @@ func TestProviderChat_GeneratedImages(t *testing.T) {
 			if len(out.Images) != 2 {
 				t.Fatalf("Images = %d, want 2", len(out.Images))
 			}
-			if img := out.Images[0]; img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.URL != "" {
+			if img := out.Images[0]; img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.Size != int64(len(pngBytes)) || img.URL != "" {
 				t.Errorf("Images[0] = %+v, want image/png and the PNG bytes", img)
 			}
-			if img := out.Images[1]; img.URL != remoteURL || img.Data != nil || img.ContentType != "" {
-				t.Errorf("Images[1] = %+v, want URL %q only", img, remoteURL)
+			if img := out.Images[1]; img.URL != remoteURL || img.Data != nil || img.ContentType != "" || img.Size != -1 {
+				t.Errorf("Images[1] = %+v, want URL %q only and Size -1", img, remoteURL)
 			}
 			if !out.Normal {
 				t.Errorf("Normal = false, want true")

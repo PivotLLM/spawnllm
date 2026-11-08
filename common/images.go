@@ -46,7 +46,7 @@ func (c *ImageCollector) AddURL(url string) {
 	}
 	rest, ok := strings.CutPrefix(url, "data:")
 	if !ok {
-		c.images = append(c.images, protocoltypes.GeneratedImage{URL: url})
+		c.images = append(c.images, protocoltypes.GeneratedImage{URL: url, Size: -1})
 		return
 	}
 	meta, payload, ok := strings.Cut(rest, ",")
@@ -80,7 +80,7 @@ func (c *ImageCollector) addData(data []byte, contentType string) {
 	if contentType == "" {
 		contentType = http.DetectContentType(data)
 	}
-	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, Data: data})
+	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, Data: data, Size: int64(len(data))})
 }
 
 // passThrough returns image data that could not be decoded as a data URL,
@@ -89,7 +89,7 @@ func (c *ImageCollector) addData(data []byte, contentType string) {
 func (c *ImageCollector) passThrough(dataURL, contentType string) {
 	imageWarnFn("common", "Generated image data does not decode, returned as URL",
 		map[string]any{"model": c.model, "length": len(dataURL)})
-	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, URL: dataURL})
+	c.images = append(c.images, protocoltypes.GeneratedImage{ContentType: contentType, URL: dataURL, Size: -1})
 }
 
 // decodeImage decodes standard base64, reporting false when it is malformed

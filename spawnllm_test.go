@@ -240,8 +240,8 @@ func TestRun_APILoop_KeepsReasoningState(t *testing.T) {
 }
 
 func TestRun_APILoop_ReturnsGeneratedImages(t *testing.T) {
-	img1 := GeneratedImage{ContentType: "image/png", Data: []byte("a")}
-	img2 := GeneratedImage{URL: "https://example.com/b.png"}
+	img1 := GeneratedImage{ContentType: "image/png", Data: []byte("a"), Size: 1}
+	img2 := GeneratedImage{URL: "https://example.com/b.png", Size: -1}
 	tool := toolspec.ToolDefinition{
 		Name: "echo",
 		Handler: func(*toolspec.ToolCall) (*toolspec.Result, error) {
@@ -260,7 +260,8 @@ func TestRun_APILoop_ReturnsGeneratedImages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if len(res.Images) != 2 || string(res.Images[0].Data) != "a" || res.Images[1].URL != img2.URL {
+	if len(res.Images) != 2 || string(res.Images[0].Data) != "a" || res.Images[0].Size != 1 ||
+		res.Images[1].URL != img2.URL || res.Images[1].Size != -1 {
 		t.Fatalf("Images = %+v, want both images in order", res.Images)
 	}
 }

@@ -61,12 +61,12 @@ func TestChat_GeneratedImages(t *testing.T) {
 			}
 			img := out.Images[0]
 			if tc.wantURL != "" {
-				if img.URL != tc.wantURL || img.Data != nil {
-					t.Errorf("Images[0] = %+v, want URL %q only", img, tc.wantURL)
+				if img.URL != tc.wantURL || img.Data != nil || img.Size != -1 {
+					t.Errorf("Images[0] = %+v, want URL %q only and Size -1", img, tc.wantURL)
 				}
 				return
 			}
-			if img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.URL != "" {
+			if img.ContentType != "image/png" || !bytes.Equal(img.Data, pngBytes) || img.Size != int64(len(pngBytes)) || img.URL != "" {
 				t.Errorf("Images[0] = %+v, want image/png and the PNG bytes", img)
 			}
 		})

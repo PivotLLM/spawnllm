@@ -72,6 +72,10 @@ type GeneratedImage struct {
 	// gave is returned unchanged, and a bare base64 string is returned as
 	// "data:;base64," followed by it, so the model's output is never lost.
 	URL string `json:"url,omitempty"`
+	// Size is the length in bytes of the decoded image, len(Data), so a
+	// receiver can check it before accepting the image. It is -1 (unknown)
+	// when URL is set, since a URL image is never fetched.
+	Size int64 `json:"size"`
 }
 
 // DispatchStatus is populated by each provider on every Chat() return
