@@ -631,6 +631,8 @@ type responseOutputItem struct {
 	Name      string          `json:"name"`
 	Arguments json.RawMessage `json:"arguments"`
 	Execution string          `json:"execution"`
+	// image_generation_call: the generated image, base64.
+	Result string `json:"result"`
 }
 
 // argumentsJSON returns an output item's arguments as a JSON text: a JSON
@@ -663,6 +665,7 @@ func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 	var reasoning strings.Builder
 	var toolCalls []ToolCall
 	var reasoningItems []json.RawMessage
+	images := common.NewImageCollector(model)
 	for _, raw := range env.Output {
 		var item responseOutputItem
 		if err := json.Unmarshal(raw, &item); err != nil {
@@ -697,6 +700,10 @@ func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 			// Capture the whole item verbatim so it can be replayed before its
 			// function_call next turn (carries encrypted_content when store=false).
 			reasoningItems = append(reasoningItems, append(json.RawMessage(nil), raw...))
+		case "image_generation_call":
+			// The media type is sniffed: the item's output_format is not
+			// always present.
+			images.AddBase64(item.Result, "")
 		}
 	}
 
@@ -722,6 +729,7 @@ func parseResponse(raw []byte, model, searchTool string) (*LLMResponse, error) {
 		ReasoningContent:   reasoning.String(),
 		ToolCalls:          toolCalls,
 		ResponsesReasoning: reasoningItems,
+		Images:             images.Images(),
 		FinishReason:       finishReason,
 		Normal:             finishReason == "stop" || finishReason == "tool_calls",
 		Status: &DispatchStatus{

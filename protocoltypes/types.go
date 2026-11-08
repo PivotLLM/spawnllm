@@ -46,6 +46,26 @@ type LLMResponse struct {
 	// API requires them back, unmodified, at the start of the assistant turn
 	// when a tool-use loop continues with thinking on. Empty without thinking.
 	AnthropicThinking []json.RawMessage `json:"anthropic_thinking,omitempty"`
+	// Images holds the images the model generated in this reply, decoded, in
+	// the order the response gave them. Set by openai_compat (the assistant
+	// message's images array, OpenRouter's format, streamed or not) and
+	// openai_responses (image_generation_call output items); the Anthropic
+	// provider and the CLI providers never set it, since those APIs return no
+	// images. An image given only as a remote URL (never fetched), one that
+	// does not decode, and one over the size caps (common.MaxImageBytes per
+	// image, common.MaxImagesBytes per response) are left out with a WARN. A
+	// reply may carry images and an empty Content; it is still a complete
+	// reply.
+	Images []GeneratedImage `json:"images,omitempty"`
+}
+
+// GeneratedImage is one image a model generated as part of its reply.
+type GeneratedImage struct {
+	// ContentType is the image's media type (for example image/png): the one
+	// the response declared, else the one sniffed from Data.
+	ContentType string `json:"content_type"`
+	// Data is the decoded image.
+	Data []byte `json:"data"`
 }
 
 // DispatchStatus is populated by each provider on every Chat() return

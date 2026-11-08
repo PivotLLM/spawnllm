@@ -74,6 +74,9 @@ type Result struct {
 	Content    string    // final model-facing content
 	Messages   []Message // full transcript (API loop); nil for CLI
 	Iterations int
+	// Images are the images the model generated over the run, in order
+	// (LLMResponse.Images of every iteration); nil when there are none.
+	Images []GeneratedImage
 }
 
 // Option configures a Worker. Options are applied in order by New.
@@ -179,6 +182,7 @@ func (w *Worker) Run(ctx context.Context, messages []Message) (*Result, error) {
 
 	toolDefs := w.providerToolDefs()
 	msgs := append([]Message(nil), messages...)
+	var images []GeneratedImage
 	for i := 1; i <= w.maxIterations; i++ {
 		resp, err := w.provider.Chat(ctx, msgs, toolDefs, w.model, w.llmOptions)
 		if err != nil {
@@ -187,8 +191,9 @@ func (w *Worker) Run(ctx context.Context, messages []Message) (*Result, error) {
 		if w.progress != nil {
 			w.progress(Event{Iteration: i, ToolCalls: len(resp.ToolCalls)})
 		}
+		images = append(images, resp.Images...)
 		if len(resp.ToolCalls) == 0 {
-			return &Result{Content: resp.Content, Messages: msgs, Iterations: i}, nil
+			return &Result{Content: resp.Content, Messages: msgs, Iterations: i, Images: images}, nil
 		}
 		msgs = append(msgs, Message{
 			Role:               "assistant",
@@ -205,7 +210,7 @@ func (w *Worker) Run(ctx context.Context, messages []Message) (*Result, error) {
 			})
 		}
 	}
-	return &Result{Messages: msgs, Iterations: w.maxIterations},
+	return &Result{Messages: msgs, Iterations: w.maxIterations, Images: images},
 		fmt.Errorf("spawnllm: max iterations (%d) reached without completion", w.maxIterations)
 }
 
