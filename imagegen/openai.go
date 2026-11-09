@@ -24,9 +24,13 @@ import (
 
 const component = "imagegen"
 
-// ErrEditUnsupported is returned by OpenAI.Edit for an endpoint that has no
-// image-edit API (OpenRouter).
+// ErrEditUnsupported is returned by OpenAI.Edit for an endpoint where
+// /images/edits is not available (OpenRouter, whose /images takes input
+// images as input_references instead).
 var ErrEditUnsupported = errors.New("image edits are not supported by this endpoint")
+
+// ErrNoImages is returned when a successful response carries no image.
+var ErrNoImages = errors.New("response contains no images")
 
 // OpenAI calls OpenAI-style image endpoints under one base URL
 // (https://developers.openai.com/api/reference/resources/images):
@@ -37,11 +41,13 @@ var ErrEditUnsupported = errors.New("image edits are not supported by this endpo
 //     (https://openrouter.ai/docs/api/api-reference/images/generate-an-image),
 //     whose usage.cost is returned as CostUSD.
 //   - Edit: POST {base}/images/edits, multipart model, prompt, the input
-//     images, mask, n, size and quality. OpenRouter has no edit endpoint.
+//     images, mask, n, size and quality. /images/edits is not available on
+//     OpenRouter.
 //
 // Each data item's b64_json is decoded into Data (with the item's media_type
 // when given, else the type detected from the bytes) and a url item is
-// returned as URL with Size -1, never fetched.
+// returned as URL with Size -1, never fetched. A 2xx response with no image
+// (empty data, or items with neither b64_json nor url) is an error.
 type OpenAI struct {
 	baseURL    string
 	apiKey     string
@@ -212,6 +218,9 @@ func (c *OpenAI) send(httpReq *http.Request, model string) (*Result, error) {
 		default:
 			collector.AddURL(item.URL)
 		}
+	}
+	if len(collector.Images()) == 0 {
+		return nil, fmt.Errorf("%w (%d data items)", ErrNoImages, len(parsed.Data))
 	}
 	out := &Result{Images: collector.Images()}
 	if u := parsed.Usage; u != nil {

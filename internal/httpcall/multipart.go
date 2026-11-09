@@ -12,6 +12,7 @@ import (
 	"net/textproto"
 	"path/filepath"
 	"strings"
+	"unicode"
 )
 
 // WriteFilePart writes r as a multipart file part. filename defaults
@@ -26,7 +27,7 @@ func WriteFilePart(w *multipart.Writer, field, filename, contentType string, r i
 	}
 	h := make(textproto.MIMEHeader)
 	h.Set("Content-Disposition", fmt.Sprintf(`form-data; name="%s"; filename="%s"`,
-		quoteEscaper.Replace(field), quoteEscaper.Replace(filepath.Base(filename))))
+		quoteEscaper.Replace(field), quoteEscaper.Replace(safeFilename(filename))))
 	h.Set("Content-Type", contentType)
 	part, err := w.CreatePart(h)
 	if err != nil {
@@ -36,6 +37,17 @@ func WriteFilePart(w *multipart.Writer, field, filename, contentType string, r i
 		return fmt.Errorf("failed to read file part: %w", err)
 	}
 	return nil
+}
+
+// safeFilename is the base name of filename with every control character
+// (CR, LF, NUL, DEL, …) replaced by "_", so it cannot break the part header.
+func safeFilename(filename string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return '_'
+		}
+		return r
+	}, filepath.Base(filename))
 }
 
 // quoteEscaper escapes a Content-Disposition parameter as mime/multipart does.

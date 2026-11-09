@@ -2,11 +2,15 @@ package common
 
 import (
 	"encoding/json"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
+	"time"
 
 	"github.com/PivotLLM/spawnllm/protocoltypes"
 )
@@ -977,5 +981,24 @@ func TestUncachedInputTokens(t *testing.T) {
 				t.Errorf("UncachedInputTokens(%d, %d, %d) = %d, want %d", tt.total, tt.read, tt.write, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestHandleErrorResponse_ReadFailure checks that an error body that cannot
+// be read still yields the status, Retry-After and what was read.
+func TestHandleErrorResponse_ReadFailure(t *testing.T) {
+	resp := &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Retry-After": {"12"}},
+		Body:       io.NopCloser(io.MultiReader(strings.NewReader(`{"error":"slow`), iotest.ErrReader(errors.New("reset")))),
+	}
+	err := HandleErrorResponse(resp, "https://api.example.com")
+	statusErr, ok := errors.AsType[*HTTPStatusError](err)
+	if !ok {
+		t.Fatalf("err = %v, want *HTTPStatusError", err)
+	}
+	if statusErr.StatusCode != http.StatusTooManyRequests || statusErr.RetryAfter != 12*time.Second ||
+		statusErr.BodyPreview != `{"error":"slow` {
+		t.Errorf("err = %+v", statusErr)
 	}
 }

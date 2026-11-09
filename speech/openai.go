@@ -8,14 +8,11 @@ package speech
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
-	"path/filepath"
 	"strings"
 
 	"github.com/PivotLLM/spawnllm/internal/httpcall"
@@ -71,6 +68,13 @@ func (c *OpenAI) call(model string, expectJSON bool) httpcall.Call {
 	return httpcall.Call{Component: component, Backend: "openai", Model: model, APIBase: c.baseURL, JSON: expectJSON}
 }
 
+// binaryCall is the call description for a response that must be audio.
+func (c *OpenAI) binaryCall(model string) httpcall.Call {
+	call := c.call(model, false)
+	call.Binary = true
+	return call
+}
+
 func (c *OpenAI) authorize(req *http.Request) {
 	if c.apiKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.apiKey)
@@ -97,12 +101,18 @@ type openAITranscription struct {
 
 // Transcribe sends the audio to {base}/audio/transcriptions.
 //
-// Multipart (OpenAI, Groq, local servers): fields file (named Filename, or
-// "audio" when empty, typed ContentType or application/octet-stream), model,
-// response_format=json, and language and prompt when set.
+// Multipart (OpenAI, Groq, local servers): fields file, model,
+// response_format=json, and language and prompt when set. The file part is
+// typed ContentType (application/octet-stream when empty) and named
+// Filename; the endpoints pick the decoder by the name's extension, so a
+// name without one gets ContentType's ("audio.ogg" for an unnamed
+// audio/ogg), and audio with neither is refused before sending.
 //
 // Input audio (OpenRouter): a JSON body {"input_audio": {"data": <base64>,
-// "format": <Filename's extension>}, "model": …}, plus language when set.
+// "format": …}, "model": …}, plus language when set. The format is
+// Filename's extension, else ContentType's, with oga and opus sent as ogg.
+// OpenRouter also accepts the multipart upload; TranscriptionAuto picks
+// input_audio for it by choice, the shape ClawEh has used in production.
 // OpenRouter has no prompt field, so Prompt is not sent. Its usage.cost is
 // returned as CostUSD and usage.seconds as DurationSeconds.
 func (c *OpenAI) Transcribe(ctx context.Context, req *TranscribeRequest) (*Transcription, error) {
@@ -150,9 +160,13 @@ func (c *OpenAI) Transcribe(ctx context.Context, req *TranscribeRequest) (*Trans
 }
 
 func (c *OpenAI) multipartRequest(ctx context.Context, req *TranscribeRequest) (*http.Request, error) {
+	filename, err := uploadFilename(req.Filename, req.ContentType)
+	if err != nil {
+		return nil, err
+	}
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
-	if err := httpcall.WriteFilePart(w, "file", audioFilename(req.Filename), req.ContentType, req.Audio); err != nil {
+	if err := httpcall.WriteFilePart(w, "file", filename, req.ContentType, req.Audio); err != nil {
 		return nil, err
 	}
 	fields := [][2]string{{"model", req.Model}, {"response_format", "json"}}
@@ -172,38 +186,38 @@ func (c *OpenAI) multipartRequest(ctx context.Context, req *TranscribeRequest) (
 }
 
 func (c *OpenAI) inputAudioRequest(ctx context.Context, req *TranscribeRequest) (*http.Request, error) {
-	// OpenRouter needs the container format, taken from the file extension.
-	format := strings.TrimPrefix(strings.ToLower(filepath.Ext(req.Filename)), ".")
-	if format == "" {
-		return nil, fmt.Errorf("cannot determine audio format from %q", filepath.Base(req.Filename))
-	}
-	raw, err := io.ReadAll(req.Audio)
+	format, err := openRouterFormat(req.Filename, req.ContentType)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read audio: %w", err)
+		return nil, err
 	}
 	if req.Prompt != "" {
 		logger.DebugCF(component, "OpenRouter transcription has no prompt field; prompt not sent",
 			map[string]any{"model": req.Model})
 	}
-	payload := map[string]any{
-		"input_audio": map[string]string{
-			"data":   base64.StdEncoding.EncodeToString(raw),
-			"format": format,
-		},
-		"model": req.Model,
+	// Written by hand so the audio is base64-encoded straight into the body,
+	// without a copy of the audio or of its encoding. Keys in sorted order,
+	// as json.Marshal of a map writes them.
+	var body bytes.Buffer
+	body.WriteString(`{"input_audio":{"data":"`)
+	if err := httpcall.WriteBase64(&body, req.Audio); err != nil {
+		return nil, fmt.Errorf("audio: %w", err)
 	}
+	body.WriteString(`","format":`)
+	httpcall.WriteJSONString(&body, format)
+	body.WriteString(`}`)
 	if req.Language != "" {
-		payload["language"] = req.Language
+		body.WriteString(`,"language":`)
+		httpcall.WriteJSONString(&body, req.Language)
 	}
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode request: %w", err)
-	}
-	return httpcall.NewPost(ctx, c.baseURL+"/audio/transcriptions", data, "application/json")
+	body.WriteString(`,"model":`)
+	httpcall.WriteJSONString(&body, req.Model)
+	body.WriteString(`}`)
+	return httpcall.NewPost(ctx, c.baseURL+"/audio/transcriptions", body.Bytes(), "application/json")
 }
 
 // Synthesize sends {model, input, voice, response_format?, instructions?} to
-// {base}/audio/speech and returns the body as the audio. ContentType is the
+// {base}/audio/speech and returns the body as the audio. A 2xx answer that is
+// text, JSON or HTML is an error, not audio. ContentType is the
 // response's Content-Type; when the server sends none it is the media type of
 // the requested Format (mp3 when none was requested, OpenAI's default).
 func (c *OpenAI) Synthesize(ctx context.Context, req *SynthesizeRequest) (*Speech, error) {
@@ -227,7 +241,7 @@ func (c *OpenAI) Synthesize(ctx context.Context, req *SynthesizeRequest) (*Speec
 	}
 	c.authorize(httpReq)
 
-	resp, err := httpcall.Do(c.httpClient, httpReq, c.call(req.Model, false))
+	resp, err := httpcall.Do(c.httpClient, httpReq, c.binaryCall(req.Model))
 	if err != nil {
 		return nil, err
 	}
@@ -288,13 +302,4 @@ func validateSynthesize(req *SynthesizeRequest, voiceRequired bool) error {
 		return errors.New("synthesize: voice is required")
 	}
 	return nil
-}
-
-// audioFilename is the file name sent for the audio: the request's, else
-// "audio".
-func audioFilename(name string) string {
-	if name == "" {
-		return "audio"
-	}
-	return name
 }

@@ -6,12 +6,12 @@
 package speech
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -94,7 +94,8 @@ type geminiResponse struct {
 
 // Transcribe sends the audio with an instruction to transcribe it. Language
 // and Prompt, when set, are added to the instruction. The transcript is the
-// text of the first candidate's parts (thought parts left out), as returned.
+// text of the first candidate's parts (thought parts left out), as returned;
+// a finish reason other than STOP is an error naming it.
 // The audio's media type is ContentType, else the one Filename's extension
 // names.
 func (g *Gemini) Transcribe(ctx context.Context, req *TranscribeRequest) (*Transcription, error) {
@@ -108,11 +109,6 @@ func (g *Gemini) Transcribe(ctx context.Context, req *TranscribeRequest) (*Trans
 	if mimeType == "" {
 		return nil, fmt.Errorf("cannot determine audio type of %q: set the content type", filepath.Base(req.Filename))
 	}
-	raw, err := io.ReadAll(req.Audio)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read audio: %w", err)
-	}
-
 	instruction := geminiTranscribeInstruction
 	if req.Language != "" {
 		instruction += " The speech is in the language with code " + req.Language + "."
@@ -120,16 +116,19 @@ func (g *Gemini) Transcribe(ctx context.Context, req *TranscribeRequest) (*Trans
 	if req.Prompt != "" {
 		instruction += "\n\nContext for the transcription:\n" + req.Prompt
 	}
-	payload := map[string]any{
-		"contents": []map[string]any{{
-			"role": "user",
-			"parts": []geminiPart{
-				{Text: instruction},
-				{InlineData: &geminiInlineData{MimeType: mimeType, Data: base64.StdEncoding.EncodeToString(raw)}},
-			},
-		}},
+	// Written by hand so the audio is base64-encoded straight into the body,
+	// without a copy of the audio or of its encoding.
+	var body bytes.Buffer
+	body.WriteString(`{"contents":[{"role":"user","parts":[{"text":`)
+	httpcall.WriteJSONString(&body, instruction)
+	body.WriteString(`},{"inlineData":{"mimeType":`)
+	httpcall.WriteJSONString(&body, mimeType)
+	body.WriteString(`,"data":"`)
+	if err := httpcall.WriteBase64(&body, req.Audio); err != nil {
+		return nil, fmt.Errorf("audio: %w", err)
 	}
-	parsed, err := g.generate(ctx, req.Model, payload)
+	body.WriteString(`"}}]}]}`)
+	parsed, err := g.generate(ctx, req.Model, body.Bytes())
 	if err != nil {
 		return nil, err
 	}
@@ -166,11 +165,14 @@ func (g *Gemini) Synthesize(ctx context.Context, req *SynthesizeRequest) (*Speec
 			},
 		}
 	}
-	payload := map[string]any{
+	data, err := json.Marshal(map[string]any{
 		"contents":         []map[string]any{{"role": "user", "parts": []geminiPart{{Text: text}}}},
 		"generationConfig": genConfig,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
-	parsed, err := g.generate(ctx, req.Model, payload)
+	parsed, err := g.generate(ctx, req.Model, data)
 	if err != nil {
 		return nil, err
 	}
@@ -188,16 +190,14 @@ func (g *Gemini) Synthesize(ctx context.Context, req *SynthesizeRequest) (*Speec
 		}
 		return &Speech{Audio: audio, ContentType: p.InlineData.MimeType, Size: int64(len(audio)), Usage: usage}, nil
 	}
-	return nil, fmt.Errorf("gemini returned no audio (finish reason %q)", parsed.Candidates[0].FinishReason)
+	return nil, errors.New("gemini returned no audio")
 }
 
-// generate posts a generateContent request and returns a response with at
-// least one candidate.
-func (g *Gemini) generate(ctx context.Context, model string, payload any) (*geminiResponse, error) {
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode request: %w", err)
-	}
+// generate posts a generateContent request body and returns a response with
+// at least one candidate that finished normally: a finish reason other than
+// STOP (SAFETY, RECITATION, PROHIBITED_CONTENT, MAX_TOKENS, OTHER, …) means
+// the output was blocked or cut short, and is an error naming the reason.
+func (g *Gemini) generate(ctx context.Context, model string, data []byte) (*geminiResponse, error) {
 	model = strings.TrimPrefix(model, "models/")
 	endpoint := g.baseURL + "/models/" + url.PathEscape(model) + ":generateContent"
 	httpReq, err := httpcall.NewPost(ctx, endpoint, data, "application/json")
@@ -220,6 +220,9 @@ func (g *Gemini) generate(ctx context.Context, model string, payload any) (*gemi
 			return nil, fmt.Errorf("gemini blocked the request: %s", parsed.PromptFeedback.BlockReason)
 		}
 		return nil, errors.New("gemini returned no candidates")
+	}
+	if reason := parsed.Candidates[0].FinishReason; reason != "" && reason != "STOP" {
+		return nil, fmt.Errorf("gemini stopped with finish reason %s", reason)
 	}
 	return &parsed, nil
 }

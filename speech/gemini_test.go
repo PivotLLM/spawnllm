@@ -235,11 +235,40 @@ func TestGeminiSynthesize(t *testing.T) {
 
 func TestGeminiSynthesize_NoAudio(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(t, w, http.StatusOK, `{"candidates":[{"content":{"parts":[{"text":"no"}]},"finishReason":"OTHER"}]}`)
+		writeJSON(t, w, http.StatusOK, `{"candidates":[{"content":{"parts":[{"text":"no"}]},"finishReason":"STOP"}]}`)
 	}))
 	defer srv.Close()
 	got, err := NewGemini(srv.URL, "g-key").Synthesize(context.Background(), &SynthesizeRequest{Model: "m", Text: "Hi"})
 	if err == nil || !strings.Contains(err.Error(), "no audio") || got != nil {
 		t.Fatalf("got %v, err = %v, want a no-audio error", got, err)
+	}
+}
+
+// TestGemini_FinishReason checks that output blocked or cut short is an error
+// naming the reason, for transcription and speech alike.
+func TestGemini_FinishReason(t *testing.T) {
+	tests := []struct {
+		name, body, want string
+	}{
+		{"SAFETY with no parts", `{"candidates":[{"finishReason":"SAFETY"}]}`, "SAFETY"},
+		{"MAX_TOKENS with text", `{"candidates":[{"content":{"parts":[{"text":"Hello"}]},"finishReason":"MAX_TOKENS"}]}`, "MAX_TOKENS"},
+		{"RECITATION", `{"candidates":[{"content":{"parts":[]},"finishReason":"RECITATION"}]}`, "RECITATION"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(t, w, http.StatusOK, tc.body)
+			}))
+			defer srv.Close()
+			g := NewGemini(srv.URL, "g-key")
+			tr, err := g.Transcribe(context.Background(), &TranscribeRequest{Model: "m", Audio: audio(), ContentType: "audio/ogg"})
+			if err == nil || tr != nil || !strings.Contains(err.Error(), "finish reason "+tc.want) {
+				t.Errorf("Transcribe: got %v, err = %v, want finish reason %s", tr, err, tc.want)
+			}
+			sp, err := g.Synthesize(context.Background(), &SynthesizeRequest{Model: "m", Text: "Hi"})
+			if err == nil || sp != nil || !strings.Contains(err.Error(), "finish reason "+tc.want) {
+				t.Errorf("Synthesize: got %v, err = %v, want finish reason %s", sp, err, tc.want)
+			}
+		})
 	}
 }

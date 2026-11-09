@@ -33,7 +33,7 @@ func TestErrorsClassify(t *testing.T) {
 			}
 		}))
 		_, err := speech.NewOpenAI(srv.URL, "k").Transcribe(context.Background(),
-			&speech.TranscribeRequest{Model: "whisper-1", Audio: strings.NewReader("a")})
+			&speech.TranscribeRequest{Model: "whisper-1", Audio: strings.NewReader("a"), Filename: "a.ogg"})
 		srv.Close()
 		fe := spawnllm.ClassifyError(err, "openai", "whisper-1")
 		if fe == nil || fe.Reason != tc.want || fe.Status != tc.status {

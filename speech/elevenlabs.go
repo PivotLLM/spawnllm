@@ -57,7 +57,9 @@ func (e *ElevenLabs) call(model string, expectJSON bool) httpcall.Call {
 
 // Transcribe sends the audio to Scribe (Model is the model_id, e.g.
 // scribe_v2). Language is sent as language_code; Prompt is not sent (Scribe
-// has no such field). Language is the detected language_code and
+// has no such field). The file name is Filename, given ContentType's
+// extension when it has none, as for OpenAI.Transcribe; audio with neither is
+// refused. Language is the detected language_code and
 // DurationSeconds the audio_duration_secs, when returned. Scribe reports no
 // usage or cost.
 func (e *ElevenLabs) Transcribe(ctx context.Context, req *TranscribeRequest) (*Transcription, error) {
@@ -68,19 +70,23 @@ func (e *ElevenLabs) Transcribe(ctx context.Context, req *TranscribeRequest) (*T
 		logger.DebugCF(component, "ElevenLabs transcription has no prompt field; prompt not sent",
 			map[string]any{"model": req.Model})
 	}
+	filename, err := uploadFilename(req.Filename, req.ContentType)
+	if err != nil {
+		return nil, err
+	}
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)
 	fields := [][2]string{{"model_id", req.Model}}
 	if req.Language != "" {
 		fields = append(fields, [2]string{"language_code", req.Language})
 	}
-	if err := httpcall.WriteFields(w, fields); err != nil {
+	if err = httpcall.WriteFields(w, fields); err != nil {
 		return nil, err
 	}
-	if err := httpcall.WriteFilePart(w, "file", audioFilename(req.Filename), req.ContentType, req.Audio); err != nil {
+	if err = httpcall.WriteFilePart(w, "file", filename, req.ContentType, req.Audio); err != nil {
 		return nil, err
 	}
-	if err := w.Close(); err != nil {
+	if err = w.Close(); err != nil {
 		return nil, fmt.Errorf("failed to close multipart writer: %w", err)
 	}
 	httpReq, err := httpcall.NewPost(ctx, e.baseURL+"/v1/speech-to-text", body.Bytes(), w.FormDataContentType())
@@ -107,7 +113,9 @@ func (e *ElevenLabs) Transcribe(ctx context.Context, req *TranscribeRequest) (*T
 // Synthesize speaks the text in the voice whose id is Voice. Format is sent
 // as output_format when set (the API's default is mp3_44100_128).
 // Instructions is not sent (the API has no such field). ContentType is the
-// response's Content-Type.
+// response's Content-Type, else the type the output format names (mp3 when
+// none was requested, the API's default). A 2xx answer that is text, JSON or
+// HTML is an error, not audio.
 func (e *ElevenLabs) Synthesize(ctx context.Context, req *SynthesizeRequest) (*Speech, error) {
 	if err := validateSynthesize(req, true); err != nil {
 		return nil, err
@@ -130,14 +138,38 @@ func (e *ElevenLabs) Synthesize(ctx context.Context, req *SynthesizeRequest) (*S
 	}
 	httpReq.Header.Set("Xi-Api-Key", e.apiKey)
 
-	resp, err := httpcall.Do(e.httpClient, httpReq, e.call(req.Model, false))
+	call := e.call(req.Model, false)
+	call.Binary = true
+	resp, err := httpcall.Do(e.httpClient, httpReq, call)
 	if err != nil {
 		return nil, err
 	}
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = elevenLabsFormatType(req.Format)
+	}
 	return &Speech{
 		Audio:       resp.Body,
-		ContentType: resp.Header.Get("Content-Type"),
+		ContentType: contentType,
 		Size:        int64(len(resp.Body)),
 		Usage:       characterUsage(req.Text),
 	}, nil
+}
+
+// elevenLabsFormatType maps an ElevenLabs output_format (codec_rate_bitrate)
+// to a media type, for a response that declares none.
+func elevenLabsFormatType(format string) string {
+	codec, _, _ := strings.Cut(strings.ToLower(format), "_")
+	switch codec {
+	case "pcm":
+		return "audio/pcm"
+	case "ulaw":
+		return "audio/basic"
+	case "opus":
+		return "audio/ogg"
+	case "wav":
+		return "audio/wav"
+	default: // mp3, and the API's default when no format was requested
+		return "audio/mpeg"
+	}
 }

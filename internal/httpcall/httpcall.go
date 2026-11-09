@@ -17,7 +17,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/PivotLLM/spawnllm/common"
@@ -37,7 +39,15 @@ type Call struct {
 	// JSON marks a response that must be JSON: an HTML body with a 2xx status
 	// is then an error (a proxy or login page), as in the chat providers.
 	JSON bool
+	// Binary marks a response that must be binary data (audio): a 2xx whose
+	// Content-Type is text/* or application/json, or whose body looks like
+	// HTML, is then an error rather than data.
+	Binary bool
 }
+
+// drainLimit is how much of an unread body is discarded before closing, so
+// the connection can be reused.
+const drainLimit = 64 << 10
 
 // Response is a successful (2xx) response, its body read in full.
 type Response struct {
@@ -79,6 +89,7 @@ func Do(client *http.Client, req *http.Request, c Call) (*Response, error) {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
 	defer func() {
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, drainLimit)) //nolint:errcheck // best effort
 		if closeErr := resp.Body.Close(); closeErr != nil {
 			logger.DebugCF(c.Component, "closing response body", map[string]any{"error": closeErr.Error()})
 		}
@@ -98,8 +109,18 @@ func Do(client *http.Client, req *http.Request, c Call) (*Response, error) {
 		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 	contentType := resp.Header.Get("Content-Type")
-	if c.JSON && common.LooksLikeHTML(body, contentType) {
+	if (c.JSON || c.Binary) && common.LooksLikeHTML(body, contentType) {
 		return nil, common.WrapHTMLResponseError(resp.StatusCode, body, contentType, c.APIBase)
+	}
+	if c.Binary && isTextType(contentType) {
+		// An API that answers with a JSON or text message where audio was
+		// expected has not returned audio; report it as a status error so
+		// the body reaches the caller and the classifier.
+		return nil, &common.HTTPStatusError{
+			StatusCode:  resp.StatusCode,
+			APIBase:     c.APIBase,
+			BodyPreview: common.ResponsePreview(body, 1024),
+		}
 	}
 
 	logger.DebugCF(c.Component, "Received response", map[string]any{
@@ -120,4 +141,14 @@ func DecodeJSON(body []byte, v any) error {
 		return fmt.Errorf("failed to decode response: %w", err)
 	}
 	return nil
+}
+
+// isTextType reports whether a Content-Type is text or JSON, not binary data.
+func isTextType(contentType string) bool {
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(mediaType, "text/") || mediaType == "application/json" ||
+		strings.HasSuffix(mediaType, "+json")
 }

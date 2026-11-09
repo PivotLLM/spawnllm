@@ -581,11 +581,10 @@ func (e *HTTPStatusError) Error() string {
 // the classifier unable to distinguish credits-exhausted from rate-limit.
 func HandleErrorResponse(resp *http.Response, apiBase string) error {
 	contentType := resp.Header.Get("Content-Type")
+	// A failed read still yields the status and Retry-After, which is what
+	// the classifier needs most, with whatever part of the body was read.
 	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1024))
-	if readErr != nil {
-		return fmt.Errorf("failed to read response: %w", readErr)
-	}
-	if LooksLikeHTML(body, contentType) {
+	if readErr == nil && LooksLikeHTML(body, contentType) {
 		return WrapHTMLResponseError(resp.StatusCode, body, contentType, apiBase)
 	}
 	return &HTTPStatusError{

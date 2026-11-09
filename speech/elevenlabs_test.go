@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/PivotLLM/spawnllm/common"
@@ -17,6 +18,7 @@ func TestElevenLabsTranscribe(t *testing.T) {
 		response string
 		want     Transcription
 		wantLang bool
+		wantFile string
 	}{
 		{
 			name:     "all fields",
@@ -24,12 +26,14 @@ func TestElevenLabsTranscribe(t *testing.T) {
 			response: `{"language_code":"eng","language_probability":0.98,"text":"Hello Bob.","words":[],"audio_duration_secs":3.25}`,
 			want:     Transcription{Text: "Hello Bob.", Language: "eng", DurationSeconds: 3.25},
 			wantLang: true,
+			wantFile: "memo.ogg",
 		},
 		{
 			name:     "optional fields missing",
-			req:      TranscribeRequest{Model: "scribe_v2", Audio: audio()},
+			req:      TranscribeRequest{Model: "scribe_v2", Audio: audio(), ContentType: "audio/mpeg"},
 			response: `{"text":"Hi","words":[]}`,
 			want:     Transcription{Text: "Hi"},
+			wantFile: "audio.mp3",
 		},
 	}
 	for _, tc := range tests {
@@ -58,7 +62,7 @@ func TestElevenLabsTranscribe(t *testing.T) {
 					t.Error("language_code value")
 				}
 				file := field(t, form, "file")
-				if file.value != "OggS-fake-audio" || file.filename != audioFilename(tc.req.Filename) {
+				if file.value != "OggS-fake-audio" || file.filename != tc.wantFile {
 					t.Errorf("file = %+v", file)
 				}
 				writeJSON(t, w, http.StatusOK, tc.response)
@@ -132,7 +136,7 @@ func TestElevenLabs_Errors(t *testing.T) {
 	}))
 	defer srv.Close()
 	c := NewElevenLabs(srv.URL, "el-key")
-	_, err := c.Transcribe(context.Background(), &TranscribeRequest{Model: "scribe_v2", Audio: audio()})
+	_, err := c.Transcribe(context.Background(), &TranscribeRequest{Model: "scribe_v2", Audio: audio(), Filename: "a.ogg"})
 	if statusErr, ok := errors.AsType[*common.HTTPStatusError](err); !ok || statusErr.StatusCode != http.StatusUnprocessableEntity {
 		t.Errorf("transcribe err = %v", err)
 	}
@@ -145,5 +149,48 @@ func TestElevenLabs_Errors(t *testing.T) {
 func TestNewElevenLabs_DefaultBaseURL(t *testing.T) {
 	if got := NewElevenLabs("", "k").baseURL; got != ElevenLabsBaseURL {
 		t.Errorf("baseURL = %q", got)
+	}
+}
+
+func TestElevenLabsTranscribe_UnknownFormat(t *testing.T) {
+	_, err := NewElevenLabs("http://127.0.0.1:1", "k").Transcribe(context.Background(),
+		&TranscribeRequest{Model: "scribe_v2", Audio: audio()})
+	if err == nil || !strings.Contains(err.Error(), "cannot determine audio format") {
+		t.Fatalf("err = %v, want a format error", err)
+	}
+}
+
+func TestElevenLabsSynthesize_ContentTypeFallback(t *testing.T) {
+	tests := map[string]string{
+		"":              "audio/mpeg",
+		"mp3_44100_128": "audio/mpeg",
+		"pcm_24000":     "audio/pcm",
+		"ulaw_8000":     "audio/basic",
+		"opus_48000_64": "audio/ogg",
+		"wav_16000":     "audio/wav",
+	}
+	for format, want := range tests {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header()["Content-Type"] = nil
+			writeRaw(t, w, []byte{0, 1, 2})
+		}))
+		got, err := NewElevenLabs(srv.URL, "k").Synthesize(context.Background(),
+			&SynthesizeRequest{Model: "m", Text: "t", Voice: "v", Format: format})
+		srv.Close()
+		if err != nil || got.ContentType != want {
+			t.Errorf("format %q: got %+v, err %v, want %s", format, got, err, want)
+		}
+	}
+}
+
+func TestElevenLabsSynthesize_NotAudio(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(t, w, http.StatusOK, `{"detail":{"status":"quota_exceeded"}}`)
+	}))
+	defer srv.Close()
+	got, err := NewElevenLabs(srv.URL, "k").Synthesize(context.Background(),
+		&SynthesizeRequest{Model: "m", Text: "t", Voice: "v"})
+	if err == nil || got != nil || !strings.Contains(err.Error(), "quota_exceeded") {
+		t.Fatalf("got %v, err = %v, want an error with the body", got, err)
 	}
 }
