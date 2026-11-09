@@ -200,3 +200,21 @@ type ToolFunctionDefinition struct {
 	Description string         `json:"description"`
 	Parameters  map[string]any `json:"parameters"`
 }
+
+// TaskUsage is what a single-shot task call (a transcription, a speech
+// synthesis, an image generation) reports it used. Each field is zero when
+// the call reported nothing for it.
+type TaskUsage struct {
+	// InputTokens, OutputTokens and TotalTokens are the token counts the
+	// response reported (token-billed models: gpt-4o-transcribe, Gemini,
+	// GPT image models, OpenRouter).
+	InputTokens  int `json:"input_tokens,omitempty"`
+	OutputTokens int `json:"output_tokens,omitempty"`
+	TotalTokens  int `json:"total_tokens,omitempty"`
+	// Seconds is the audio duration the response reported as billed
+	// (whisper-1's usage {type: duration}, OpenRouter's usage.seconds).
+	Seconds float64 `json:"seconds,omitempty"`
+	// Characters is the number of characters (Unicode code points) of text
+	// sent for synthesis, counted by spawnllm since no speech API reports it.
+	Characters int `json:"characters,omitempty"`
+}
