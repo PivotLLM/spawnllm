@@ -4,6 +4,47 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.25]
+
+### Added
+
+- Package `speech`: speech-to-text (`Transcriber`) and text-to-speech
+  (`Synthesizer`) clients, one request per call, with the base URL, API key
+  and model from the caller.
+  - `speech.NewOpenAI`: OpenAI-style `POST {base}/audio/transcriptions`
+    (multipart: `file`, `model`, `response_format=json`, and `language` and
+    `prompt` when set) and `POST {base}/audio/speech` (`model`, `input`,
+    `voice`, `response_format`, `instructions`). For an `openrouter.ai` base
+    URL, or with `WithTranscriptionAPI(TranscriptionInputAudio)`, a
+    transcription is sent as OpenRouter's JSON body
+    (`input_audio {data, format}`, the format being the file extension), and
+    OpenRouter's `usage.cost` is returned as `CostUSD` and `usage.seconds` as
+    the duration. `DefaultSTTModel(baseURL)` returns the usual transcription
+    model for Groq, OpenAI and OpenRouter.
+  - `speech.NewGemini`: transcription through `generateContent` with the
+    audio as `inlineData`, and speech from Gemini TTS models
+    (`responseModalities: ["AUDIO"]`, a prebuilt voice name). The audio is
+    returned with Gemini's `mimeType` unchanged: raw 16-bit PCM, not a
+    playable file.
+  - `speech.NewElevenLabs`: Scribe (`POST /v1/speech-to-text`) and
+    `POST /v1/text-to-speech/{voice_id}` with `output_format`.
+  - Results carry the text or audio as returned, the detected language and
+    duration when reported, the usage (`protocoltypes.TaskUsage`: tokens,
+    audio seconds, characters synthesized) and the reported cost.
+- Package `imagegen`: `imagegen.NewOpenAI` generates images with
+  `POST {base}/images/generations` (OpenRouter: `POST {base}/images`) and
+  edits them with `POST {base}/images/edits` (multipart, one or more input
+  images and an optional mask). Images are returned as `GeneratedImage`
+  values, as chat image output is: base64 decoded into `Data`, a URL
+  returned as `URL` with `Size` -1 and never fetched. Usage and OpenRouter's
+  cost are returned when reported; an edit on OpenRouter, which has no edit
+  endpoint, returns `ErrEditUnsupported`.
+- `protocoltypes.TaskUsage`: the usage a single-shot task call reports.
+- Errors from these clients keep the HTTP status (`*common.HTTPStatusError`
+  with Retry-After and a body excerpt of at most 1 KiB), so `ClassifyError`
+  classifies them as it does chat-provider errors. Each call is logged at
+  DEBUG through the `logger` package.
+
 ## [0.1.24]
 
 ### Added
