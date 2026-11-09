@@ -69,8 +69,8 @@ func TestOpenAITranscribe_MultipartDefaultsAndOptionalFields(t *testing.T) {
 		}
 		form := readForm(t, r)
 		file := field(t, form, "file")
-		if file.filename != "audio" || file.contentType != "application/octet-stream" {
-			t.Errorf("file part = %+v, want filename audio, application/octet-stream", file)
+		if file.filename != "audio.ogg" || file.contentType != "audio/ogg; codecs=opus" {
+			t.Errorf("file part = %+v, want audio.ogg typed audio/ogg; codecs=opus", file)
 		}
 		for _, name := range []string{"language", "prompt"} {
 			if _, ok := form[name]; ok {
@@ -82,7 +82,7 @@ func TestOpenAITranscribe_MultipartDefaultsAndOptionalFields(t *testing.T) {
 	defer srv.Close()
 
 	got, err := NewOpenAI(srv.URL, "").Transcribe(context.Background(),
-		&TranscribeRequest{Model: "whisper-large-v3", Audio: audio()})
+		&TranscribeRequest{Model: "whisper-large-v3", Audio: audio(), ContentType: "audio/ogg; codecs=opus"})
 	if err != nil {
 		t.Fatalf("Transcribe: %v", err)
 	}
@@ -336,7 +336,7 @@ func TestOpenAITranscribe_ContextDeadline(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
-	_, err := NewOpenAI(srv.URL, "k").Transcribe(ctx, &TranscribeRequest{Model: "m", Audio: audio()})
+	_, err := NewOpenAI(srv.URL, "k").Transcribe(ctx, &TranscribeRequest{Model: "m", Audio: audio(), Filename: "a.ogg"})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("err = %v, want context.DeadlineExceeded", err)
 	}
@@ -441,5 +441,57 @@ func TestOpenAISynthesize_Error(t *testing.T) {
 	statusErr, ok := errors.AsType[*common.HTTPStatusError](err)
 	if !ok || statusErr.StatusCode != http.StatusBadRequest {
 		t.Fatalf("err = %v, want HTTPStatusError 400", err)
+	}
+}
+
+// TestOpenAITranscribe_UnknownFormat checks that audio whose format neither
+// the file name nor the content type tells is refused before sending, on
+// both request shapes.
+func TestOpenAITranscribe_UnknownFormat(t *testing.T) {
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	defer srv.Close()
+	for _, api := range []TranscriptionAPI{TranscriptionMultipart, TranscriptionInputAudio} {
+		for _, req := range []TranscribeRequest{
+			{Model: "m", Audio: audio()},
+			{Model: "m", Audio: audio(), Filename: "voice", ContentType: "application/octet-stream"},
+		} {
+			_, err := NewOpenAI(srv.URL, "k", WithTranscriptionAPI(api)).Transcribe(context.Background(), &req)
+			if err == nil || !strings.Contains(err.Error(), "cannot determine audio format") {
+				t.Errorf("api %v, %+v: err = %v, want a format error", api, req, err)
+			}
+		}
+	}
+	if called {
+		t.Error("a request was sent")
+	}
+}
+
+func TestOpenAISynthesize_NotAudio(t *testing.T) {
+	tests := []struct {
+		name, contentType, body, want string
+	}{
+		{"JSON", "application/json", `{"error":{"message":"quota"}}`, "quota"},
+		{"text", "text/plain; charset=utf-8", "upstream said no", "upstream said no"},
+		{"HTML", "text/html", "<html><body>login</body></html>", "returned HTML"},
+		{"HTML without a type", "", "<!DOCTYPE html><html></html>", "returned HTML"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if tc.contentType == "" {
+					w.Header()["Content-Type"] = nil
+				} else {
+					w.Header().Set("Content-Type", tc.contentType)
+				}
+				writeRaw(t, w, []byte(tc.body))
+			}))
+			defer srv.Close()
+			got, err := NewOpenAI(srv.URL, "k").Synthesize(context.Background(),
+				&SynthesizeRequest{Model: "tts-1", Text: "x", Voice: "alloy"})
+			if err == nil || got != nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("got %v, err = %v, want an error containing %q", got, err, tc.want)
+			}
+		})
 	}
 }

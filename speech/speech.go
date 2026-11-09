@@ -49,9 +49,10 @@ type TranscribeRequest struct {
 	Model string
 	// Audio is read to the end (required).
 	Audio io.Reader
-	// Filename is the audio's file name. Its extension tells the OpenAI-style
-	// endpoints the format; OpenRouter requires it (the format sent is the
-	// extension).
+	// Filename is the audio's file name. Its extension tells the APIs the
+	// format. When it has none (or is empty), ContentType's extension is
+	// used; audio whose format neither names is refused before sending,
+	// except by Gemini, which needs only a media type.
 	Filename string
 	// ContentType is the audio's media type (audio/ogg, …). Gemini requires
 	// it or a Filename with a known extension; the multipart backends send it
@@ -143,7 +144,9 @@ type TranscriptionAPI int
 
 const (
 	// TranscriptionAuto picks TranscriptionInputAudio for an openrouter.ai
-	// base URL and TranscriptionMultipart for any other.
+	// base URL and TranscriptionMultipart for any other. OpenRouter accepts
+	// the multipart upload too; input_audio is chosen for it as the shape
+	// ClawEh has used in production.
 	TranscriptionAuto TranscriptionAPI = iota
 	// TranscriptionMultipart is OpenAI's multipart upload (OpenAI, Groq,
 	// local Whisper servers).

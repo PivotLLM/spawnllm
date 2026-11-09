@@ -4,6 +4,48 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.26]
+
+### Added
+
+- `imagegen.ErrNoImages`: a successful image response that carries no image
+  (empty `data`, or items with neither `b64_json` nor `url`) is now this
+  error instead of an empty result.
+
+### Changed
+
+- `speech`: audio sent without a file extension now gets the extension of
+  its `ContentType` (an unnamed `audio/ogg` is sent as `audio.ogg`), since
+  the OpenAI-style endpoints choose the decoder by extension and rejected
+  the bare name "audio". Audio whose format neither the file name nor the
+  content type tells is refused before any request is sent (OpenAI style,
+  OpenRouter and ElevenLabs; Gemini still needs only a media type).
+- `speech` (OpenRouter transcription): the `input_audio` format falls back
+  to the content type when the file name has no extension, and `oga` and
+  `opus` are sent as `ogg`, their container (Telegram voice notes are
+  `.oga`).
+- `speech` (Gemini): a candidate whose finish reason is not `STOP`
+  (`SAFETY`, `RECITATION`, `PROHIBITED_CONTENT`, `MAX_TOKENS`, `OTHER`, …)
+  is an error naming the reason, for transcription and speech, instead of
+  an empty or partial result.
+- `speech` (text to speech): a 2xx response that is text, JSON or HTML is an
+  error carrying the body, not audio. ElevenLabs audio with no
+  `Content-Type` gets the type its `output_format` names (mp3 → audio/mpeg,
+  pcm → audio/pcm, ulaw → audio/basic, opus → audio/ogg, wav → audio/wav).
+- `common.HandleErrorResponse`: when the error body cannot be read, the
+  result is still an `*HTTPStatusError` with the status, Retry-After and
+  whatever part of the body was read, so the classifier keeps the status.
+- Task calls drain up to 64 KiB of an unread response body before closing,
+  so the connection can be reused.
+- Base64 request bodies (OpenRouter transcription, Gemini inline audio) are
+  encoded straight into the request, without intermediate copies of the
+  audio.
+
+### Fixed
+
+- A multipart file name containing CR, LF or other control characters could
+  break the part's header; they are now replaced with `_`.
+
 ## [0.1.25]
 
 ### Added
@@ -37,8 +79,8 @@ All notable changes to spawnllm are recorded here. The format follows
   images and an optional mask). Images are returned as `GeneratedImage`
   values, as chat image output is: base64 decoded into `Data`, a URL
   returned as `URL` with `Size` -1 and never fetched. Usage and OpenRouter's
-  cost are returned when reported; an edit on OpenRouter, which has no edit
-  endpoint, returns `ErrEditUnsupported`.
+  cost are returned when reported; `/images/edits` is not available on OpenRouter, so
+  an edit there returns `ErrEditUnsupported`.
 - `protocoltypes.TaskUsage`: the usage a single-shot task call reports.
 - Errors from these clients keep the HTTP status (`*common.HTTPStatusError`
   with Retry-After and a body excerpt of at most 1 KiB), so `ClassifyError`

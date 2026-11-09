@@ -130,15 +130,32 @@ func TestOpenAIGenerate_NoUsage(t *testing.T) {
 		if r.Header.Get("Authorization") != "" {
 			t.Error("Authorization sent without a key")
 		}
-		writeJSON(t, w, http.StatusOK, `{"created":1,"data":[]}`)
+		writeJSON(t, w, http.StatusOK, `{"created":1,"data":[{"url":"https://cdn.example.com/b.png"}]}`)
 	}))
 	defer srv.Close()
 	got, err := NewOpenAI(srv.URL, "").Generate(context.Background(), &GenerateRequest{Model: "m", Prompt: "p"})
 	if err != nil {
 		t.Fatalf("Generate: %v", err)
 	}
-	if got.Images != nil || got.Usage != nil || got.CostUSD != nil {
-		t.Errorf("result = %+v, want empty", got)
+	if len(got.Images) != 1 || got.Usage != nil || got.CostUSD != nil {
+		t.Errorf("result = %+v, want one image and no usage", got)
+	}
+}
+
+func TestOpenAIGenerate_NoImages(t *testing.T) {
+	for _, body := range []string{
+		`{"created":1,"data":[]}`,
+		`{"created":1}`,
+		`{"created":1,"data":[{"revised_prompt":"x"},{"b64_json":"","url":""}]}`,
+	} {
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			writeJSON(t, w, http.StatusOK, body)
+		}))
+		got, err := NewOpenAI(srv.URL, "k").Generate(context.Background(), &GenerateRequest{Model: "m", Prompt: "p"})
+		srv.Close()
+		if !errors.Is(err, ErrNoImages) || got != nil {
+			t.Errorf("%s: got %v, err = %v, want ErrNoImages", body, got, err)
+		}
 	}
 }
 

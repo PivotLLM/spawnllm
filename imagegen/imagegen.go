@@ -5,7 +5,8 @@
 
 // Package imagegen calls image-generation APIs: OpenAI-style
 // /images/generations and /images/edits (OpenAI, compatible servers) and
-// OpenRouter's /images.
+// OpenRouter's /images (generation only: /images/edits is not available
+// there).
 //
 // Each call is one request. The caller supplies the base URL, API key and
 // model, and owns every policy decision. Images come back as
