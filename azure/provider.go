@@ -123,7 +123,7 @@ func (p *Provider) Chat(
 
 	if len(tools) > 0 {
 		requestBody["tools"] = tools
-		requestBody["tool_choice"] = "auto"
+		requestBody["tool_choice"] = common.ToolChoice(options)
 	}
 
 	// Azure OpenAI always uses max_completion_tokens

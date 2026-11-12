@@ -198,7 +198,7 @@ func (p *Provider) Chat(
 
 	if len(tools) > 0 {
 		requestBody["tools"] = responsesTools(tools, search)
-		requestBody["tool_choice"] = "auto"
+		requestBody["tool_choice"] = common.ToolChoice(options)
 		if p.noParallelToolCalls {
 			requestBody["parallel_tool_calls"] = false
 		}

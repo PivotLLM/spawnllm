@@ -4,6 +4,17 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.27]
+
+### Added
+
+- `ToolChoiceOption` (`"tool_choice"`), with `ToolChoiceAuto` (the default)
+  and `ToolChoiceNone`: a per-request option that keeps the tools declared
+  but stops the model from calling them, so it answers in text. Anthropic
+  sends `tool_choice {"type":"none"}`; OpenAI-compatible, Azure and OpenAI
+  Responses send `"none"` in place of `"auto"`. It applies only when the
+  request carries tools; CLI providers ignore it.
+
 ## [0.1.26]
 
 ### Added

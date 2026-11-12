@@ -605,6 +605,11 @@ func buildRequestBody(
 	// Add tools if present
 	if len(tools) > 0 {
 		result["tools"] = buildTools(tools)
+		// Only "none" is sent: leaving tool_choice out is "auto", so the
+		// default request stays byte-identical.
+		if common.ToolChoice(options) == common.ToolChoiceNone {
+			result["tool_choice"] = map[string]any{"type": "none"}
+		}
 	}
 
 	// Automatic prompt caching: the API puts a breakpoint on the last
