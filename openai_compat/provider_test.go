@@ -453,7 +453,7 @@ func TestProviderChat_KeepsModelIDAndNormalizesKimiTemperature(t *testing.T) {
 }
 
 // TestProviderChat_DropParamsStripsFields verifies that WithDropParams removes
-// the named top-level fields from the outgoing request body, even when claw
+// the named top-level fields from the outgoing request body, even when spawnllm
 // would normally set them (temperature here), while leaving other fields intact.
 // This is the generic, model-agnostic escape hatch for upstreams that reject a
 // parameter (e.g. OpenRouter reasoning models that 404 under
@@ -503,7 +503,7 @@ func TestProviderChat_DropParamsStripsFields(t *testing.T) {
 }
 
 // TestProviderChat_NoDropParamsKeepsTemperature is the off-path: without
-// WithDropParams the temperature claw sets is sent as usual.
+// WithDropParams the temperature spawnllm sets is sent as usual.
 func TestProviderChat_NoDropParamsKeepsTemperature(t *testing.T) {
 	var requestBody map[string]any
 
@@ -1359,7 +1359,7 @@ var _ = protocoltypes.DispatchStatus{}
 
 // logRecord mirrors the JSONL record written by (*Provider).writeLogEntry.
 // Body stays as json.RawMessage so tests can decode it either as a JSON
-// object (claw's request body) or as a JSON string (non-JSON upstream body).
+// object (spawnllm's request body) or as a JSON string (non-JSON upstream body).
 type logRecord struct {
 	Ts         string          `json:"ts"`
 	CorrID     string          `json:"corr_id"`
@@ -1464,7 +1464,7 @@ func TestRequestBodyLogging_RedactsAPIKey(t *testing.T) {
 	logPath := filepath.Join(dir, "rrlog.jsonl")
 
 	// Smuggle an api_key field into the request body via extra_body to
-	// exercise the redaction path. claw's config validator would normally
+	// exercise the redaction path. The host's config validator would normally
 	// reject this, but the provider must still defend the diagnostic log.
 	p := NewProvider("super-secret-key", server.URL, "",
 		WithResponseLogFile(logPath),

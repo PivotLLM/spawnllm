@@ -140,8 +140,8 @@ func WithReasoningEffort(level string) Option {
 
 // WithExtraBody supplies a free-form map merged into the JSON request body
 // just before marshal. Used as the per-model passthrough for provider-specific
-// knobs claw does not model natively. Collisions with claw-managed fields are
-// rejected at config load; the merge step here is purely defensive.
+// knobs spawnllm does not model natively. Collisions with fields spawnllm sets
+// are expected to be rejected by the host at config load; the merge step here is purely defensive.
 func WithExtraBody(extra map[string]any) Option {
 	return func(p *Provider) {
 		p.extraBody = extra
@@ -387,10 +387,10 @@ func (p *Provider) Chat(
 		}
 	}
 
-	// Merge extra_body last so any forgotten claw-managed field still wins.
+	// Merge extra_body last so any forgotten field spawnllm sets still wins.
 	// The config-load collision guard ensures this loop should be a no-op for
 	// reserved keys; the defensive check below logs and skips if one slips
-	// through (e.g. a key claw added after the config validator was last
+	// through (e.g. a key spawnllm added after the config validator was last
 	// updated).
 	for k, v := range p.extraBody {
 		if k == "provider" {
@@ -400,7 +400,7 @@ func (p *Provider) Chat(
 			continue
 		}
 		if _, clash := requestBody[k]; clash {
-			warnFn("openai_compat", "extra_body key collides with claw-managed request field; skipping",
+			warnFn("openai_compat", "extra_body key collides with a request field spawnllm sets; skipping",
 				map[string]any{
 					"model": p.modelLabelOr(model),
 					"key":   k,
@@ -411,7 +411,7 @@ func (p *Provider) Chat(
 	}
 
 	// Strip operator-configured fields last so drop_params wins over every
-	// source, including extra_body and claw-managed defaults.
+	// source, including extra_body and spawnllm's own defaults.
 	for k := range p.dropParams {
 		delete(requestBody, k)
 	}
@@ -800,7 +800,7 @@ type logEntry struct {
 
 // appendRequestLog writes the outgoing request body to the diagnostic log
 // before the HTTP round-trip starts. The body is parsed to redact a top-level
-// "api_key" field (rare, but defensive — claw never sets one, but extra_body
+// "api_key" field (rare, but defensive — spawnllm never sets one, but extra_body
 // passthrough could). Request headers (including Authorization) are never
 // logged.
 func (p *Provider) appendRequestLog(corrID, wireModel string, body []byte) {
