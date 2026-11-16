@@ -1,4 +1,4 @@
-// ClawEh
+// spawnllm
 // License: MIT
 
 //go:build unix

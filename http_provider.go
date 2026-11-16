@@ -1,4 +1,4 @@
-// ClawEh - Personal AI Assistant
+// spawnllm
 // Inspired by and based on nanobot: https://github.com/HKUDS/nanobot
 // License: MIT
 //

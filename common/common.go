@@ -1,4 +1,4 @@
-// ClawEh - Personal AI Assistant
+// spawnllm
 // License: MIT
 //
 // Copyright (c) 2026 PicoClaw contributors

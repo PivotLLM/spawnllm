@@ -73,9 +73,9 @@ func (p *CodexCliProvider) Chat(
 
 	// CLI providers run their own internal agentic loop and return one final
 	// answer per invocation. The `tools` parameter is intentionally ignored:
-	// the CLI cannot use claw's host-side tools by writing JSON in its prose
-	// (that pattern caused infinite outer loops). Use the MCP server in
-	// pkg/mcpserver to expose claw tools to the CLI natively.
+	// the CLI cannot use the host's tools by writing JSON in its prose
+	// (that pattern caused infinite outer loops). The host exposes its tools to
+	// the CLI natively over MCP instead.
 	_ = tools
 	// Fortify the stdin payload at the tail so JSON-only directives are the
 	// last thing the CLI reads before generating its reply.

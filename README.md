@@ -1,6 +1,6 @@
 # spawnllm
 
-`github.com/PivotLLM/spawnllm` is the ClawEh ecosystem's **LLM-dispatch core**.
+`github.com/PivotLLM/spawnllm` is an **LLM-dispatch core** for host applications.
 It calls an LLM and drives it to completion:
 
 - **CLI providers** (claude-cli, codex-cli, cursor-cli, antigravity-cli; gemini-cli is an alias for antigravity-cli): run the subprocess, return the result.
@@ -11,7 +11,7 @@ It calls an LLM and drives it to completion:
 spawnllm imports only [`toolspec`](https://github.com/PivotLLM/toolspec) and the
 standard library (plus provider SDKs). It **never imports a host**. Policy —
 model selection, fallback, cooldown, config, results handling — stays in the host
-(ClawEh, Maestro). The host resolves a `ProviderSpec`, injects tools, and calls
+application. The host resolves a `ProviderSpec`, injects tools, and calls
 the worker.
 
 Logging is host-injectable via the `logger` subpackage (`logger.SetBackend`), so
