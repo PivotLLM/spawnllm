@@ -1,4 +1,4 @@
-// ClawEh
+// spawnllm
 // License: MIT
 
 package spawnllm
@@ -21,12 +21,12 @@ func TestApplyProviderEnv_Nil(t *testing.T) {
 
 func TestApplyProviderEnv_AppendsAfterOSEnviron(t *testing.T) {
 	// Set a known var in our process env so we can verify the override order.
-	key := "CLAW_TEST_APPLY_ENV_KEY"
+	key := "SPAWNLLM_TEST_APPLY_ENV_KEY"
 	t.Setenv(key, "from-parent")
 
 	got := applyProviderEnv(nil, map[string]string{
-		key:                 "from-model",
-		"CLAW_TEST_NEW_KEY": "fresh",
+		key:                     "from-model",
+		"SPAWNLLM_TEST_NEW_KEY": "fresh",
 	})
 
 	parentIdx, modelIdx, freshIdx := -1, -1, -1
@@ -36,7 +36,7 @@ func TestApplyProviderEnv_AppendsAfterOSEnviron(t *testing.T) {
 			parentIdx = i
 		case key + "=from-model":
 			modelIdx = i
-		case "CLAW_TEST_NEW_KEY=fresh":
+		case "SPAWNLLM_TEST_NEW_KEY=fresh":
 			freshIdx = i
 		}
 	}
@@ -80,7 +80,7 @@ func TestApplyProviderEnv_SortedForDeterminism(t *testing.T) {
 // A supplied base replaces os.Environ() entirely: the host's own variables do
 // not reach the subprocess, and the per-model overlay still comes last.
 func TestApplyProviderEnv_BaseReplacesOSEnviron(t *testing.T) {
-	t.Setenv("CLAW_TEST_HOST_SECRET", "secret")
+	t.Setenv("SPAWNLLM_TEST_HOST_SECRET", "secret")
 
 	base := []string{"PATH=/usr/bin", "HOME=/home/alice"}
 	got := applyProviderEnv(base, map[string]string{"HOME": "/srv/model", "CODEX_HOME": "/srv/codex"})

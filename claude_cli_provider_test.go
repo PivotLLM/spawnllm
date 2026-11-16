@@ -666,9 +666,9 @@ func TestParseClaudeCliResponse_IsError(t *testing.T) {
 func TestParseClaudeCliResponse_PermissionDenials(t *testing.T) {
 	p := NewClaudeCliProvider("", "/workspace", nil, nil)
 	output := `{"type":"result","subtype":"success","is_error":false,"num_turns":2,"result":"It did not work: the permission request was denied.","session_id":"s",` +
-		`"permission_denials":[{"tool_name":"mcp__claw__maestro_file_get","tool_use_id":"toolu_1","tool_input":{"path":"assistant/email.md"}},` +
-		`{"tool_name":"mcp__claw__microsoft365_mail_read_inbox","tool_use_id":"toolu_2","tool_input":{}},` +
-		`{"tool_name":"mcp__claw__maestro_file_get","tool_use_id":"toolu_3","tool_input":{}},` +
+		`"permission_denials":[{"tool_name":"mcp__host__file_get","tool_use_id":"toolu_1","tool_input":{"path":"notes/todo.md"}},` +
+		`{"tool_name":"mcp__host__mail_read_inbox","tool_use_id":"toolu_2","tool_input":{}},` +
+		`{"tool_name":"mcp__host__file_get","tool_use_id":"toolu_3","tool_input":{}},` +
 		`{"tool_name":"  ","tool_use_id":"toolu_4","tool_input":{}}]}`
 
 	resp, err := p.parseClaudeCliResponse(output)
@@ -678,7 +678,7 @@ func TestParseClaudeCliResponse_PermissionDenials(t *testing.T) {
 	if resp.Status == nil {
 		t.Fatal("Status should not be nil")
 	}
-	want := []string{"mcp__claw__maestro_file_get", "mcp__claw__microsoft365_mail_read_inbox"}
+	want := []string{"mcp__host__file_get", "mcp__host__mail_read_inbox"}
 	if !slices.Equal(resp.Status.DeniedTools, want) {
 		t.Errorf("DeniedTools = %v, want %v", resp.Status.DeniedTools, want)
 	}
