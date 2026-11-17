@@ -1,4 +1,6 @@
 github.com/PivotLLM/toolspec v0.4.0 h1:/6EZ8XvQoMi6LmFw24gt5UcekuQPoj88evwfMUn5xTU=
 github.com/PivotLLM/toolspec v0.4.0/go.mod h1:QA/AiJHJSEwsLGEY0RTGWC124ftNigLIP8pTPj3oVKM=
+github.com/PivotLLM/toolspec v0.4.1 h1:aDwbldfcOBYRMxt3VFy60A+AAw9kf3vBAG2y6msO8qM=
+github.com/PivotLLM/toolspec v0.4.1/go.mod h1:QA/AiJHJSEwsLGEY0RTGWC124ftNigLIP8pTPj3oVKM=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=
 github.com/google/uuid v1.6.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
