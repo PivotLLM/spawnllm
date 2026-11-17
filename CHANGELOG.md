@@ -4,6 +4,17 @@ All notable changes to spawnllm are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [0.1.28]
+
+### Changed
+
+- The openai_compat warning for an `extra_body` key that collides with a
+  request field now reads "extra_body key collides with a request field
+  spawnllm sets; skipping".
+- The opt-in integration test gate is now `SPAWNLLM_INTEGRATION_TESTS`.
+- Code comments, file headers and docs name spawnllm or "the host
+  application" instead of a particular host.
+
 ## [0.1.27]
 
 ### Added

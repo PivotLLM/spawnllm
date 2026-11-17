@@ -827,7 +827,7 @@ func TestParseResponse_ContentSniff_Reject_PartialSet(t *testing.T) {
 func TestParseResponse_ContentSniff_ScoutFixtureWithFramingTokens(t *testing.T) {
 	// Real-world Scout/Llama payload via OpenRouter: a JSON descriptor in
 	// content followed by trailing framing tokens the model leaks verbatim.
-	inner := `[{"type":"function","name":"mcp__claw__get_session_messages","parameters":{"session_id":"abc123","limit":50}}]`
+	inner := `[{"type":"function","name":"mcp__host__get_session_messages","parameters":{"session_id":"abc123","limit":50}}]`
 	contentWithTrailingJunk := inner + `<|header_start|>assistant<|header_end|>`
 	payload := map[string]any{
 		"choices": []map[string]any{
@@ -841,7 +841,7 @@ func TestParseResponse_ContentSniff_ScoutFixtureWithFramingTokens(t *testing.T) 
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	names := map[string]struct{}{"mcp__claw__get_session_messages": {}}
+	names := map[string]struct{}{"mcp__host__get_session_messages": {}}
 	out, err := ParseResponse(strings.NewReader(string(raw)), names)
 	if err != nil {
 		t.Fatalf("ParseResponse() error = %v", err)
@@ -849,7 +849,7 @@ func TestParseResponse_ContentSniff_ScoutFixtureWithFramingTokens(t *testing.T) 
 	if len(out.ToolCalls) != 1 {
 		t.Fatalf("len(ToolCalls) = %d, want 1", len(out.ToolCalls))
 	}
-	if out.ToolCalls[0].Name != "mcp__claw__get_session_messages" {
+	if out.ToolCalls[0].Name != "mcp__host__get_session_messages" {
 		t.Errorf("Name = %q", out.ToolCalls[0].Name)
 	}
 	if out.ToolCalls[0].Arguments["session_id"] != "abc123" {

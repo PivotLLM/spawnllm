@@ -1,7 +1,7 @@
 # golangci-lint configuration for spawnllm.
 #
-# The linter set and settings follow ClawEh's .golangci.yaml (the house style
-# across the ClawEh ecosystem); differences are called out where they occur.
+# The linter set and settings follow the house style shared by our Go
+# projects; differences are called out where they occur.
 # Run through `make lint`, and as part of the gate (`make test`).
 
 version: "2"
@@ -34,7 +34,7 @@ linters:
     - wsl
     - wsl_v5
 
-    # Not adopted in the house style (ClawEh decision, 2026-09-19): volume
+    # Not adopted in the house style (house-style decision, 2026-09-19): volume
     # style opinions, or rules that need curating before they signal anything.
     # Counts in parentheses are what each reports on spawnllm (2026-09-26);
     # forbidigo, gochecknoinits, godox and tagalign are clean here today but
@@ -61,7 +61,7 @@ linters:
     #   complexity; the provider Chat and stream-parsing functions dominate.
     # unparam (2): parameters kept for interface symmetry.
     #
-    # ClawEh also defers embeddedstructfieldcheck, nilnil and testifylint;
+    # The house style also defers embeddedstructfieldcheck, nilnil and testifylint;
     # spawnllm has no findings for them, so they are enabled here.
     - funlen
     - gocognit
@@ -95,7 +95,7 @@ linters:
         # is enough for it.
         - G104
         # G301/G302/G306 want 0750/0600 on every directory and file. As in
-        # ClawEh, file modes are a deliberate choice rather than a lint rule:
+        # the house style, file modes are a deliberate choice rather than a lint rule:
         # the only hit here is openai_compat's optional request/response log
         # (0640), a host-configured log file like the host's own logs.
         - G301

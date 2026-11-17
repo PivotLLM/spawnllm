@@ -1,9 +1,9 @@
-// ClawEh
+// spawnllm
 // License: MIT
 
 // Package openai_responses implements the OpenAI Responses API
-// (POST <base>/responses) as a Claw LLMProvider, kept entirely separate from the
-// Chat Completions provider (pkg/providers/openai_compat) so work here cannot
+// (POST <base>/responses) as a spawnllm LLMProvider, kept entirely separate from the
+// Chat Completions provider (openai_compat) so work here cannot
 // regress the chat path. It targets the canonical OpenAI Responses spec, which
 // OpenRouter also exposes (Beta) as a drop-in — only the base_url differs.
 package openai_responses

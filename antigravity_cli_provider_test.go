@@ -158,7 +158,7 @@ func TestAntigravityCliProvider_NonSuccessStatusIsAnError(t *testing.T) {
 }
 
 // A model name is forwarded, but the protocol's own placeholders are not — they
-// are ClawEh's identifier for the provider, not something agy would recognise.
+// are spawnllm's identifier for the provider, not something agy would recognise.
 func TestAntigravityCliProvider_ModelFlag(t *testing.T) {
 	for _, tc := range []struct {
 		model string

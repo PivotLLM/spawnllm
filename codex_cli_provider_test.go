@@ -529,8 +529,8 @@ func TestCodexCliProvider_EmptyCommand(t *testing.T) {
 // --- Integration Test (requires real codex CLI with valid auth) ---
 
 func TestCodexCliProvider_Integration(t *testing.T) {
-	if os.Getenv("CLAW_INTEGRATION_TESTS") == "" {
-		t.Skip("skipping integration test (set CLAW_INTEGRATION_TESTS=1 to enable)")
+	if os.Getenv("SPAWNLLM_INTEGRATION_TESTS") == "" {
+		t.Skip("skipping integration test (set SPAWNLLM_INTEGRATION_TESTS=1 to enable)")
 	}
 
 	// Verify codex is available

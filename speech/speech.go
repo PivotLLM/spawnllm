@@ -146,7 +146,7 @@ const (
 	// TranscriptionAuto picks TranscriptionInputAudio for an openrouter.ai
 	// base URL and TranscriptionMultipart for any other. OpenRouter accepts
 	// the multipart upload too; input_audio is chosen for it as the shape
-	// ClawEh has used in production.
+	// used in production.
 	TranscriptionAuto TranscriptionAPI = iota
 	// TranscriptionMultipart is OpenAI's multipart upload (OpenAI, Groq,
 	// local Whisper servers).

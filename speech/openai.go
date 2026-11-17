@@ -112,7 +112,7 @@ type openAITranscription struct {
 // "format": …}, "model": …}, plus language when set. The format is
 // Filename's extension, else ContentType's, with oga and opus sent as ogg.
 // OpenRouter also accepts the multipart upload; TranscriptionAuto picks
-// input_audio for it by choice, the shape ClawEh has used in production.
+// input_audio for it by choice, the shape used in production.
 // OpenRouter has no prompt field, so Prompt is not sent. Its usage.cost is
 // returned as CostUSD and usage.seconds as DurationSeconds.
 func (c *OpenAI) Transcribe(ctx context.Context, req *TranscribeRequest) (*Transcription, error) {

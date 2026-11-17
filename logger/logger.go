@@ -1,6 +1,6 @@
 // Package logger is spawnllm's host-injectable logging seam. spawnllm is
 // dependency-free; it does not pull in any host's logging stack. Instead a host
-// (ClawEh, Maestro, …) installs a Backend via SetBackend so provider and loop
+// application installs a Backend via SetBackend so provider and loop
 // logs flow into the host's own logger with consistent formatting and routing.
 //
 // The zero state is a no-op: spawnllm is silent until a backend is installed.

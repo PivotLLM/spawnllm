@@ -16,7 +16,7 @@ import (
 )
 
 // ProviderSpec is a host-resolved description of one LLM endpoint. The host
-// (ClawEh, Maestro) decides which model to call and resolves credentials/knobs
+// application decides which model to call and resolves credentials/knobs
 // from its own config, then hands spawnllm a fully-resolved spec — spawnllm
 // performs no model selection, config lookup, or credential resolution.
 type ProviderSpec struct {

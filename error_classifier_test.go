@@ -81,7 +81,7 @@ func TestClassifyError_StatusCodes(t *testing.T) {
 func TestClassifyError_LimitExceededIsRateLimitNotAuth(t *testing.T) {
 	// The live OpenRouter per-key daily cap: HTTP 403 whose body says "Key limit
 	// exceeded". Must classify as rate_limit, not auth, on the structured path
-	// (what ClawEh's HTTP providers hit).
+	// (what spawnllm's HTTP providers hit).
 	structured := &common.HTTPStatusError{
 		StatusCode:  403,
 		BodyPreview: `{"error":{"message":"Key limit exceeded (daily limit). Manage it using https://openrouter.ai/...","code":403}}`,
