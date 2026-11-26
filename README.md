@@ -1,3 +1,7 @@
+# Moved
+
+This repo has moved into https://github.com/BisonNine/agent
+
 # spawnllm
 
 `github.com/PivotLLM/spawnllm` is an **LLM-dispatch core** for host applications.
